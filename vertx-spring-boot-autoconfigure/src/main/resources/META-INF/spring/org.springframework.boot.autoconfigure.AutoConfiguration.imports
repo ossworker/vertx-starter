@@ -1,0 +1,2 @@
+com.vertx.spring.boot.autoconfigure.VertxAutoConfiguration
+com.vertx.spring.boot.autoconfigure.VertxClusterAutoConfiguration

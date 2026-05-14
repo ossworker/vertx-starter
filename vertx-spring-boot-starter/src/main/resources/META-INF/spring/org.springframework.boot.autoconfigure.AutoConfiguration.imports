@@ -1,0 +1,5 @@
+com.vertx.spring.boot.autoconfigure.VertxAutoConfiguration
+com.vertx.spring.boot.autoconfigure.VertxClusterAutoConfiguration
+com.vertx.spring.boot.web.server.VertxWebServerAutoConfiguration
+com.vertx.spring.boot.web.client.VertxWebClientAutoConfiguration
+com.vertx.spring.boot.cluster.zenoh.ZenohClusterAutoConfiguration
