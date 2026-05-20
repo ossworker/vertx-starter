@@ -1,1 +1,1 @@
-com.vertx.spring.boot.web.client.VertxWebClientAutoConfiguration
+com.workoss.boot.vertx.web.client.VertxWebClientAutoConfiguration

@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.vertx.spring.boot</groupId>
+    <groupId>com.workoss.boot.vertx</groupId>
     <artifactId>vertx-spring-boot-parent</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
@@ -18,6 +18,7 @@
         <module>vertx-spring-boot-web-client</module>
         <module>vertx-spring-boot-cluster-zenoh</module>
         <module>vertx-spring-boot-starter</module>
+        <module>example</module>
     </modules>
 
     <properties>
@@ -27,12 +28,21 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <spring-boot.version>3.5.0</spring-boot.version>
-        <vertx.version>5.0.0</vertx.version>
-        <zenoh-java.version>1.3.3</zenoh-java.version>
+        <vertx.version>5.0.12</vertx.version>
+        <zenoh-java.version>1.9.0</zenoh-java.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Vert.x BOM (must precede Spring Boot to enforce Netty 4.2 required by Vert.x 5) -->
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-dependencies</artifactId>
+                <version>${vertx.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
             <!-- Spring Boot BOM -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -42,13 +52,16 @@
                 <scope>import</scope>
             </dependency>
 
-            <!-- Vert.x BOM -->
             <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-dependencies</artifactId>
-                <version>${vertx.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter</artifactId>
+                <version>${spring-boot.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-starter-logging</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- Zenoh Java -->
@@ -58,24 +71,36 @@
                 <version>${zenoh-java.version}</version>
             </dependency>
 
+            <!-- Override Vert.x BOM's log4j scope (it sets test scope, we need compile) -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>2.24.3</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>2.24.3</version>
+            </dependency>
+
             <!-- Internal modules -->
             <dependency>
-                <groupId>com.vertx.spring.boot</groupId>
+                <groupId>com.workoss.boot.vertx</groupId>
                 <artifactId>vertx-spring-boot-autoconfigure</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.vertx.spring.boot</groupId>
+                <groupId>com.workoss.boot.vertx</groupId>
                 <artifactId>vertx-spring-boot-web-server</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.vertx.spring.boot</groupId>
+                <groupId>com.workoss.boot.vertx</groupId>
                 <artifactId>vertx-spring-boot-web-client</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.vertx.spring.boot</groupId>
+                <groupId>com.workoss.boot.vertx</groupId>
                 <artifactId>vertx-spring-boot-cluster-zenoh</artifactId>
                 <version>${project.version}</version>
             </dependency>

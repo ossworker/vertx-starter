@@ -1,0 +1,34 @@
+
+
+
+
+spring:
+  application:
+    name: vertx-spring-boot-example
+  profiles:
+    active: instance1
+
+
+logging:
+  level:
+    root: info
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+
+vertx:
+  cluster:
+    enabled: true
+  prefer-native-transport: false
+  graceful-shutdown-timeout-seconds: 30
+

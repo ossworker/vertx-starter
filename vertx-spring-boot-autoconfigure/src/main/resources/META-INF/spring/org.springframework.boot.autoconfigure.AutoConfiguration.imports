@@ -1,2 +1,2 @@
-com.vertx.spring.boot.autoconfigure.VertxAutoConfiguration
-com.vertx.spring.boot.autoconfigure.VertxClusterAutoConfiguration
+com.workoss.boot.vertx.autoconfigure.VertxAutoConfiguration
+com.workoss.boot.vertx.autoconfigure.VertxClusterAutoConfiguration

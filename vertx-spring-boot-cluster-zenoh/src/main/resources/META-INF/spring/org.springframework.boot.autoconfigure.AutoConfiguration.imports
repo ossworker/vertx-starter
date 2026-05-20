@@ -1,1 +1,2 @@
-com.vertx.spring.boot.cluster.zenoh.ZenohClusterAutoConfiguration
+com.workoss.boot.vertx.cluster.zenoh.ZenohClusterAutoConfiguration
+com.workoss.boot.vertx.cluster.zenoh.ZenohEventBusAutoConfiguration
