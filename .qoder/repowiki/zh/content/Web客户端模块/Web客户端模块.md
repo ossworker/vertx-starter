@@ -12,6 +12,13 @@
 - [application.yml](file://example/vertx-spring-boot-example/src/main/resources/application.yml)
 </cite>
 
+## 更新摘要
+**变更内容**
+- 更新包名为 `com.workoss.boot.vertx`，反映最新的项目组织结构
+- 新增客户端自动配置测试用例的详细分析
+- 更新所有相关组件的包名引用和配置示例
+- 增强测试驱动开发（TDD）部分的内容
+
 ## 目录
 1. [简介](#简介)
 2. [项目结构](#项目结构)
@@ -28,12 +35,15 @@
 
 Vert.x Web客户端模块是一个基于Spring Boot自动配置的HTTP客户端集成解决方案，它将Vert.x的高性能异步HTTP客户端与Spring WebFlux和Spring MVC无缝集成。该模块提供了两种主要的客户端实现：用于WebFlux的反应式HTTP连接器和用于MVC的同步HTTP请求工厂。
 
+**更新** 包名已从 `com.vertx.spring.boot` 更新为 `com.workoss.boot.vertx`，反映了项目的最新组织结构。
+
 该模块的核心价值在于：
 - 提供高性能的异步HTTP客户端
 - 支持WebFlux和传统MVC两种编程模型
 - 简化的配置管理
 - 完整的连接池和超时控制
 - 透明的SSL和代理支持
+- 全面的单元测试覆盖
 
 ## 项目结构
 
@@ -76,6 +86,8 @@ C1 --> C2
 ### 自动配置类
 
 `VertxWebClientAutoConfiguration`是整个模块的核心，负责在Spring Boot应用启动时自动配置Vert.x HTTP客户端。该类使用条件注解确保只有在存在相应依赖时才进行配置。
+
+**更新** 包名已更新为 `com.workoss.boot.vertx.web.client`，确保与项目整体包结构一致。
 
 ### HTTP连接器实现
 
@@ -356,6 +368,41 @@ Request-->>RestTemplate : 返回ClientHttpResponse
 **章节来源**
 - [VertxHttpClientProperties.java:8-89](file://vertx-spring-boot-web-client/src/main/java/com/workoss/boot/vertx/web/client/VertxHttpClientProperties.java#L8-L89)
 
+### 测试驱动开发分析
+
+**新增** 模块包含了完整的单元测试，展示了测试驱动开发的最佳实践：
+
+#### 自动配置测试
+
+测试类验证了自动配置的正确性：
+
+```mermaid
+flowchart TD
+Start([测试启动]) --> CreateContext["创建ApplicationContextRunner"]
+CreateContext --> ConfigureAuto["配置自动配置类"]
+ConfigureAuto --> CreateBeans["创建必要Bean"]
+CreateBeans --> TestFactory["测试请求工厂创建"]
+TestFactory --> TestConnector["测试连接器创建"]
+TestConnector --> TestBackoff["测试Bean回退机制"]
+TestBackoff --> TestProperties["测试属性绑定"]
+TestProperties --> End([测试完成])
+```
+
+**图表来源**
+- [VertxWebClientAutoConfigurationTest.java:30-76](file://vertx-spring-boot-web-client/src/test/java/com/workoss/boot/vertx/web/client/VertxWebClientAutoConfigurationTest.java#L30-L76)
+
+#### 测试覆盖范围
+
+测试用例涵盖了以下关键场景：
+1. 自动配置类的正确加载
+2. 请求工厂Bean的创建
+3. 连接器Bean的创建
+4. Bean回退机制的验证
+5. 配置属性的绑定测试
+
+**章节来源**
+- [VertxWebClientAutoConfigurationTest.java:1-78](file://vertx-spring-boot-web-client/src/test/java/com/workoss/boot/vertx/web/client/VertxWebClientAutoConfigurationTest.java#L1-L78)
+
 ## 依赖关系分析
 
 ### 模块间依赖
@@ -490,11 +537,14 @@ Success --> End
 
 Vert.x Web客户端模块成功地将高性能的异步HTTP客户端与Spring生态系统无缝集成。通过自动配置机制，开发者可以轻松获得高性能的HTTP客户端能力，同时保持Spring Boot的简洁配置体验。
 
+**更新** 包名变更反映了项目的成熟化和标准化，新的包名 `com.workoss.boot.vertx` 更加清晰地表达了项目的品牌和定位。
+
 该模块的主要优势包括：
 - **高性能**: 基于Vert.x的异步非阻塞I/O
 - **易用性**: 透明的Spring Boot自动配置
 - **兼容性**: 同时支持WebFlux和MVC两种编程模型
 - **可配置性**: 全面的性能调优参数
+- **可靠性**: 完整的单元测试覆盖
 
 对于生产环境部署，建议根据实际业务场景调整连接池大小、超时参数和连接复用策略，以达到最佳的性能表现。
 
@@ -546,3 +596,4 @@ vertx:
 3. **资源管理**: 确保HTTP客户端正确关闭
 4. **错误处理**: 实现适当的重试和降级策略
 5. **性能监控**: 定期检查连接池使用率和响应时间
+6. **测试驱动**: 利用现有的单元测试确保配置正确性

@@ -13,6 +13,7 @@
 - [pom.xml（web-server）](file://vertx-spring-boot-web-server/pom.xml)
 - [application.yml（示例）](file://example/vertx-spring-boot-example/src/main/resources/application.yml)
 - [VertxWebServerAutoConfigurationTest.java](file://vertx-spring-boot-web-server/src/test/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfigurationTest.java)
+- [VertxReactiveWebServerFactoryTest.java](file://vertx-spring-boot-web-server/src/test/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactoryTest.java)
 - [AutoConfiguration.imports（web-server）](file://vertx-spring-boot-web-server/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports)
 - [AutoConfiguration.imports（autoconfigure）](file://vertx-spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports)
 </cite>
@@ -38,8 +39,10 @@
 - SSL/TLS配置要点、性能优化建议与监控指标
 - 完整的Web控制器示例与错误处理策略
 
+**更新** 包名已从`com.vertx.spring.boot`重命名为`com.workoss.boot.vertx`，体现了项目的正式化命名规范。
+
 ## 项目结构
-该模块位于vertx-spring-boot-web-server子工程中，核心文件围绕“自动配置—工厂—适配器—服务器—请求/响应适配”展开，并通过Spring Boot的条件化自动装配机制接入。
+该模块位于vertx-spring-boot-web-server子工程中，核心文件围绕"自动配置—工厂—适配器—服务器—请求/响应适配"展开，并通过Spring Boot的条件化自动装配机制接入。
 
 ```mermaid
 graph TB
@@ -66,7 +69,7 @@ D --> F
 B --> G
 ```
 
-图表来源
+**图表来源**
 - [VertxWebServerAutoConfiguration.java:17-30](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfiguration.java#L17-L30)
 - [VertxReactiveWebServerFactory.java:26-78](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L26-L78)
 - [VertxHttpServerProperties.java:12-92](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpServerProperties.java#L12-L92)
@@ -75,7 +78,7 @@ B --> G
 - [VertxServerHttpResponse.java:20-111](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxServerHttpResponse.java#L20-L111)
 - [VertxWebServer.java:19-108](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServer.java#L19-L108)
 
-章节来源
+**章节来源**
 - [AutoConfiguration.imports（web-server）:1-2](file://vertx-spring-boot-web-server/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports#L1-L2)
 - [AutoConfiguration.imports（autoconfigure）:1-3](file://vertx-spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports#L1-L3)
 
@@ -88,7 +91,9 @@ B --> G
 - 请求/响应适配器：将Vert.x原生请求/响应映射到Spring WebFlux抽象，确保背压与生命周期一致。
 - SSL信息：在启用TLS时提供会话ID与对端证书信息。
 
-章节来源
+**更新** 所有组件类的包名已更新为`com.workoss.boot.vertx.web.server`，体现了统一的命名空间。
+
+**章节来源**
 - [VertxWebServerAutoConfiguration.java:17-30](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfiguration.java#L17-L30)
 - [VertxReactiveWebServerFactory.java:26-78](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L26-L78)
 - [VertxHttpServerProperties.java:12-92](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpServerProperties.java#L12-L92)
@@ -123,7 +128,7 @@ HttpHandler-->>Adapter : "Mono<Void>"
 Adapter-->>Vertx : "end() 或设置500并end()"
 ```
 
-图表来源
+**图表来源**
 - [VertxReactiveWebServerFactory.java:36-41](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L36-L41)
 - [VertxWebServer.java:35-51](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServer.java#L35-L51)
 - [VertxHttpHandlerAdapter.java:23-43](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpHandlerAdapter.java#L23-L43)
@@ -135,7 +140,9 @@ Adapter-->>Vertx : "end() 或设置500并end()"
 - 注册Vert.x服务器工厂Bean，注入Vert.x实例与VertxHttpServerProperties
 - 通过@EnableConfigurationProperties启用配置类绑定
 
-章节来源
+**更新** 自动配置类的包名已更新为`com.workoss.boot.vertx.web.server.VertxWebServerAutoConfiguration`。
+
+**章节来源**
 - [VertxWebServerAutoConfiguration.java:17-30](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfiguration.java#L17-L30)
 
 ### 服务器工厂（VertxReactiveWebServerFactory）
@@ -143,7 +150,9 @@ Adapter-->>Vertx : "end() 或设置500并end()"
 - 将标准属性与vertx.http-server.*属性合并为HttpServerOptions
 - 创建VertxHttpHandlerAdapter与VertxWebServer实例
 
-章节来源
+**更新** 工厂类的包名已更新为`com.workoss.boot.vertx.web.server.VertxReactiveWebServerFactory`。
+
+**章节来源**
 - [VertxReactiveWebServerFactory.java:26-78](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L26-L78)
 
 ### 配置类（VertxHttpServerProperties）
@@ -152,7 +161,9 @@ Adapter-->>Vertx : "end() 或设置500并end()"
 - 最大头大小、最大块大小、最大初始行长度：限制HTTP解析尺寸
 - 接受队列长度：TCP半连接队列容量
 
-章节来源
+**更新** 配置类的包名已更新为`com.workoss.boot.vertx.web.server.VertxHttpServerProperties`。
+
+**章节来源**
 - [VertxHttpServerProperties.java:12-92](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpServerProperties.java#L12-L92)
 
 ### 请求处理器适配器（VertxHttpHandlerAdapter）
@@ -160,7 +171,9 @@ Adapter-->>Vertx : "end() 或设置500并end()"
 - 将Vert.x的HttpServerResponse包装为Spring的ServerHttpResponse
 - 调用HttpHandler处理后，若未结束则主动end；异常时返回500并结束
 
-章节来源
+**更新** 适配器类的包名已更新为`com.workoss.boot.vertx.web.server.VertxHttpHandlerAdapter`。
+
+**章节来源**
 - [VertxHttpHandlerAdapter.java:13-44](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpHandlerAdapter.java#L13-L44)
 
 ### Web服务器实现（VertxWebServer）
@@ -168,21 +181,27 @@ Adapter-->>Vertx : "end() 或设置500并end()"
 - 停止：关闭HttpServer，忽略事件循环已终止导致的拒绝执行异常
 - 优雅停机：调用shutdown并回调通知结果（空闲或仍有活跃请求）
 
-章节来源
+**更新** Web服务器类的包名已更新为`com.workoss.boot.vertx.web.server.VertxWebServer`。
+
+**章节来源**
 - [VertxWebServer.java:19-108](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServer.java#L19-L108)
 
 ### 请求/响应适配器（VertxServerHttpRequest / VertxServerHttpResponse）
 - 请求：构建URI、头部、Cookie、SSL信息；将请求体转为Flux<DataBuffer>，支持背压与取消
 - 响应：应用状态码、头部、Cookie；将响应体写入并结束
 
-章节来源
+**更新** 请求/响应适配器类的包名已更新为`com.workoss.boot.vertx.web.server.VertxServerHttpRequest`和`com.workoss.boot.vertx.web.server.VertxServerHttpResponse`。
+
+**章节来源**
 - [VertxServerHttpRequest.java:24-118](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxServerHttpRequest.java#L24-L118)
 - [VertxServerHttpResponse.java:20-111](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxServerHttpResponse.java#L20-L111)
 
 ### SSL信息（VertxSslInfo）
 - 提供会话ID十六进制字符串与对端X509证书列表（若可用）
 
-章节来源
+**更新** SSL信息类的包名已更新为`com.workoss.boot.vertx.web.server.VertxSslInfo`。
+
+**章节来源**
 - [VertxSslInfo.java:14-54](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxSslInfo.java#L14-L54)
 
 ### 类关系图
@@ -242,7 +261,7 @@ VertxWebServer --> VertxHttpHandlerAdapter : "设置处理器"
 VertxServerHttpRequest --> VertxSslInfo : "提供SSL信息"
 ```
 
-图表来源
+**图表来源**
 - [VertxWebServerAutoConfiguration.java:24-29](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfiguration.java#L24-L29)
 - [VertxReactiveWebServerFactory.java:36-41](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L36-L41)
 - [VertxHttpServerProperties.java:12-92](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpServerProperties.java#L12-L92)
@@ -269,10 +288,10 @@ A --> B
 B --> C
 ```
 
-图表来源
+**图表来源**
 - [pom.xml（web-server）:17-67](file://vertx-spring-boot-web-server/pom.xml#L17-L67)
 
-章节来源
+**章节来源**
 - [pom.xml（web-server）:17-67](file://vertx-spring-boot-web-server/pom.xml#L17-L67)
 - [AutoConfiguration.imports（web-server）:1-2](file://vertx-spring-boot-web-server/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports#L1-L2)
 - [AutoConfiguration.imports（autoconfigure）:1-3](file://vertx-spring-boot-autoconfigure/src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports#L1-L3)
@@ -290,12 +309,14 @@ B --> C
 - 优雅停机：关注回调结果，区分空闲与仍有活跃请求
 - 错误处理：适配器在异常时返回500并结束响应，便于快速定位问题
 
-章节来源
+**章节来源**
 - [VertxWebServer.java:48-82](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxWebServer.java#L48-L82)
 - [VertxHttpHandlerAdapter.java:34-42](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpHandlerAdapter.java#L34-L42)
 
 ## 结论
 该模块以最小侵入的方式将Vert.x嵌入Spring WebFlux生态，通过自动配置、工厂与适配器解耦了框架差异，既保留了Spring的标准配置体验，又充分发挥Vert.x在事件驱动与高并发方面的优势。配合合理的配置与监控，可在生产环境中获得稳定、可观测且高性能的Web服务。
+
+**更新** 包名标准化为`com.workoss.boot.vertx`，体现了项目的正式化和规范化。
 
 ## 附录
 
@@ -307,14 +328,14 @@ B --> C
 - max-initial-line-length：最大初始行长度
 - accept-backlog：TCP半连接队列长度
 
-章节来源
+**章节来源**
 - [VertxHttpServerProperties.java:12-92](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpServerProperties.java#L12-L92)
 
 ### SSL/TLS配置示例
 - 在标准server.ssl.*启用SSL后，工厂会设置HttpServerOptions为SSL模式
 - 可通过VertxSslInfo获取会话ID与对端证书信息
 
-章节来源
+**章节来源**
 - [VertxReactiveWebServerFactory.java:56-60](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactory.java#L56-L60)
 - [VertxSslInfo.java:22-53](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxSslInfo.java#L22-L53)
 
@@ -328,7 +349,7 @@ B --> C
 - 控制器示例：参考示例应用入口类，结合WebFlux路由函数进行请求处理
 - 错误处理：在适配器中统一捕获异常并返回500；业务层通过WebExceptionHandler集中处理
 
-章节来源
+**章节来源**
 - [application.yml（示例）:1-21](file://example/vertx-spring-boot-example/src/main/resources/application.yml#L1-L21)
 - [VertxHttpHandlerAdapter.java:34-42](file://vertx-spring-boot-web-server/src/main/java/com/workoss/boot/vertx/web/server/VertxHttpHandlerAdapter.java#L34-L42)
 
@@ -338,5 +359,8 @@ B --> C
 - vertx.http-server.*属性是否正确绑定
 - 工厂继承关系与标准属性setter行为
 
-章节来源
+**更新** 新增了`VertxReactiveWebServerFactoryTest.java`测试文件，提供了更全面的工厂功能测试。
+
+**章节来源**
 - [VertxWebServerAutoConfigurationTest.java:33-86](file://vertx-spring-boot-web-server/src/test/java/com/workoss/boot/vertx/web/server/VertxWebServerAutoConfigurationTest.java#L33-L86)
+- [VertxReactiveWebServerFactoryTest.java:31-86](file://vertx-spring-boot-web-server/src/test/java/com/workoss/boot/vertx/web/server/VertxReactiveWebServerFactoryTest.java#L31-L86)
