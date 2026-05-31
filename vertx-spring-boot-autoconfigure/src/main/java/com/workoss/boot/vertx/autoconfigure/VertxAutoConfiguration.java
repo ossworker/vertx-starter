@@ -112,4 +112,9 @@ public class VertxAutoConfiguration {
     public VertxHealthIndicator vertxHealthIndicator(Vertx vertx) {
         return new VertxHealthIndicator(vertx);
     }
+
+    @Bean
+    public EventBusListenerRegistry eventBusListenerRegistry(Vertx vertx) {
+        return new EventBusListenerRegistry(vertx);
+    }
 }

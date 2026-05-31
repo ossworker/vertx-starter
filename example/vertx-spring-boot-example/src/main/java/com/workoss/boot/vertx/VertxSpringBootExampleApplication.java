@@ -1,10 +1,9 @@
 package com.workoss.boot.vertx;
 
+import com.workoss.boot.vertx.autoconfigure.annotation.EventBusListener;
 import com.workoss.boot.vertx.cluster.zenoh.ZenohEventBusBridge;
-import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.Message;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,11 +28,21 @@ public class VertxSpringBootExampleApplication {
         SpringApplication.run(VertxSpringBootExampleApplication.class, args);
     }
 
-    @PostConstruct
-    public void eventBusSubscribe() {
-        // 订阅 test.address 地址，接收发送到此地址的消息
-        vertx.eventBus().consumer("test.address",
-                (Handler<Message<String>>) event -> log.info("收到消息: {}", event.body()));
+    /**
+     * 使用 @EventBusListener 注解声明式监听 EventBus 地址。
+     * 无需手动调用 vertx.eventBus().consumer()，框架会自动注册 consumer。
+     */
+    @EventBusListener("test.address")
+    public void onTestAddress(String body) {
+        log.info("收到消息: {}", body);
+    }
+
+    /**
+     * 也可以通过 Message 参数获取完整消息信息。
+     */
+    @EventBusListener("test.address.full")
+    public void onTestAddressFull(Message<String> message) {
+        log.info("收到完整消息: address={}, body={}", message.address(), message.body());
     }
 
     @GetMapping("/eventbus/pub")
