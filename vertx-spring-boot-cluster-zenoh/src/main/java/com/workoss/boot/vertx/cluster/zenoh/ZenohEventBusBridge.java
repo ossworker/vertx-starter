@@ -44,7 +44,7 @@ public class ZenohEventBusBridge {
         logger.debug("Publishing message to address: {}", address);
 
         // First, deliver locally via native EventBus
-        eventBus.publish(address, message, options);
+//        eventBus.publish(address, message, options);
 
         // Then, publish via Zenoh for remote nodes (lazy load publisher)
         ZenohEventBusPublisher publisher = clusterManager.getEventBusPublisher();
