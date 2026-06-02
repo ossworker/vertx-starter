@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.web.reactive.server.ReactiveWebServerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.server.reactive.HttpHandler;
@@ -24,7 +25,8 @@ public class VertxWebServerAutoConfiguration {
     @Bean
     public VertxReactiveWebServerFactory vertxReactiveWebServerFactory(
             Vertx vertx,
-            VertxHttpServerProperties serverProperties) {
-        return new VertxReactiveWebServerFactory(vertx, serverProperties);
+            VertxHttpServerProperties serverProperties,
+            ServerProperties springServerProperties) {
+        return new VertxReactiveWebServerFactory(vertx, serverProperties, springServerProperties);
     }
 }

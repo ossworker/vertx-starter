@@ -1,9 +1,12 @@
 package com.workoss.boot.vertx.web.server;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.http.Http2Settings;
 import io.vertx.core.http.HttpServerOptions;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.web.reactive.server.AbstractReactiveWebServerFactory;
 import org.springframework.boot.web.server.Compression;
+import org.springframework.boot.web.server.Http2;
 import org.springframework.boot.web.server.Ssl;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.http.server.reactive.HttpHandler;
@@ -20,6 +23,7 @@ import java.util.concurrent.TimeUnit;
  *   <li>{@code server.address} - bind address</li>
  *   <li>{@code server.ssl.*} - SSL/TLS configuration</li>
  *   <li>{@code server.compression.enabled} - response compression</li>
+ *   <li>{@code server.http2.enabled} - HTTP/2 support (auto-enables ALPN when SSL is on)</li>
  * </ul>
  * Vert.x-specific settings are read from {@code vertx.http-server.*} via {@link VertxHttpServerProperties}.
  */
@@ -27,10 +31,13 @@ public class VertxReactiveWebServerFactory extends AbstractReactiveWebServerFact
 
     private final Vertx vertx;
     private final VertxHttpServerProperties vertxProperties;
+    private final ServerProperties serverProperties;
 
-    public VertxReactiveWebServerFactory(Vertx vertx, VertxHttpServerProperties vertxProperties) {
+    public VertxReactiveWebServerFactory(Vertx vertx, VertxHttpServerProperties vertxProperties,
+                                           ServerProperties serverProperties) {
         this.vertx = vertx;
         this.vertxProperties = vertxProperties;
+        this.serverProperties = serverProperties;
     }
 
     @Override
@@ -55,7 +62,8 @@ public class VertxReactiveWebServerFactory extends AbstractReactiveWebServerFact
 
         // SSL: from server.ssl.*
         Ssl ssl = getSsl();
-        if (ssl != null && ssl.isEnabled()) {
+        boolean sslEnabled = ssl != null && ssl.isEnabled();
+        if (sslEnabled) {
             options.setSsl(true);
         }
 
@@ -64,6 +72,16 @@ public class VertxReactiveWebServerFactory extends AbstractReactiveWebServerFact
         if (compression != null && compression.getEnabled()) {
             options.setCompressionSupported(true);
             options.setCompressionLevel(vertxProperties.getCompressionLevel());
+        }
+
+        // --- HTTP/2: from server.http2.enabled ---
+        // When SSL is enabled and server.http2.enabled=true, auto-enable ALPN for HTTP/2 negotiation
+        Http2 http2 = serverProperties.getHttp2();
+        boolean http2Enabled = http2 != null && http2.isEnabled();
+        if (http2Enabled) {
+            options.setUseAlpn(true);
+            Http2Settings http2Settings = new Http2Settings();
+            options.setInitialSettings(http2Settings);
         }
 
         // --- Vert.x-specific properties (vertx.http-server.*) ---

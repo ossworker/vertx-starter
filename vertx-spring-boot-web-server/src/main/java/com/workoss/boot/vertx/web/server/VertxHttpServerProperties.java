@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Vert.x-specific HTTP server configuration properties.
  * <p>
- * Standard server properties (port, address, ssl, compression enabled) are read from
+ * Standard server properties (port, address, ssl, compression, http2) are read from
  * Spring Boot's {@code server.*} namespace via {@code AbstractReactiveWebServerFactory}.
  * This class only contains Vert.x-specific settings that have no standard Spring Boot equivalent.
  */

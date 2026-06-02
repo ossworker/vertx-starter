@@ -28,6 +28,11 @@
             <artifactId>vertx-spring-boot-cluster-zenoh</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.workoss.boot.vertx</groupId>
+            <artifactId>vertx-spring-boot-data-dict</artifactId>
+        </dependency>
+
 
        <dependency>
             <groupId>io.netty</groupId>

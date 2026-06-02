@@ -100,7 +100,8 @@ public class DictDataAutoConfiguration {
             DictCacheProperties properties,
             ApplicationContext applicationContext,
             ObjectProvider<ZenohClusterManager> zenohClusterManagerProvider,
-            ObjectProvider<ZenohClusterProperties> zenohPropertiesProvider) {
+            ObjectProvider<ZenohClusterProperties> zenohPropertiesProvider,
+            ObjectProvider<ObjectMapper> objectMapperProvider) {
 
         // Ensure isolation defaults are applied
         applyZenohDefaults(properties, zenohPropertiesProvider);
@@ -111,7 +112,7 @@ public class DictDataAutoConfiguration {
 
         // Try to integrate with Zenoh cluster manager for L2 cache
         ZenohCacheManager zenohCacheManager = createZenohCacheManager(
-                properties, applicationContext, zenohClusterManagerProvider);
+                properties, applicationContext, zenohClusterManagerProvider,objectMapperProvider);
         if (zenohCacheManager != null) {
             logger.info("Registering two-level CacheManager (Caffeine + Zenoh)");
             return new CaffeineZenohCacheManager(caffeineCacheManager, zenohCacheManager);
@@ -124,25 +125,18 @@ public class DictDataAutoConfiguration {
     private ZenohCacheManager createZenohCacheManager(
             DictCacheProperties properties,
             ApplicationContext ctx,
-            ObjectProvider<ZenohClusterManager> zenohClusterManagerProvider) {
+            ObjectProvider<ZenohClusterManager> zenohClusterManagerProvider,
+            ObjectProvider<ObjectMapper> objectMapperProvider) {
 
         ZenohClusterManager clusterManager = zenohClusterManagerProvider.getIfAvailable();
         if (clusterManager == null) {
             return null;
         }
-
         // Session is obtained lazily via supplier to handle initialization ordering
         return new ZenohCacheManager(
-                () -> {
-                    try {
-                        ZenohClusterManager cm = ctx.getBean(ZenohClusterManager.class);
-                        return cm.getZenohSession();
-                    } catch (Exception e) {
-                        return null;
-                    }
-                },
+                clusterManager::getZenohSession,
                 properties.resolveZenohPrefix(),
-                new ObjectMapper()
+                objectMapperProvider.getIfAvailable(ObjectMapper::new)
         );
     }
 
