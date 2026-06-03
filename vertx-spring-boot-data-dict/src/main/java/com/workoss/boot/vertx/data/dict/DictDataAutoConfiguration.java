@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.caffeine.CaffeineCacheManager;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -42,6 +43,7 @@ import org.springframework.context.annotation.Bean;
 @AutoConfiguration
 @ConditionalOnClass(com.github.benmanes.caffeine.cache.Cache.class)
 @EnableConfigurationProperties(DictCacheProperties.class)
+@EnableCaching
 @ConditionalOnProperty(prefix = "vertx.data.dict", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class DictDataAutoConfiguration {
 

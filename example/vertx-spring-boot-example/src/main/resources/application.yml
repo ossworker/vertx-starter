@@ -29,6 +29,6 @@ management:
 vertx:
   cluster:
     enabled: true
-  prefer-native-transport: false
+  prefer-native-transport: true
   graceful-shutdown-timeout-seconds: 30
 
