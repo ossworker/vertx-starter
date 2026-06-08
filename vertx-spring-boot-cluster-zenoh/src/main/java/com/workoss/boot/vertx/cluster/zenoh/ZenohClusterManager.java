@@ -1,16 +1,11 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Completable;
 import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.AsyncMap;
 import io.vertx.core.shareddata.Counter;
 import io.vertx.core.shareddata.Lock;
-import io.vertx.core.spi.cluster.ClusterManager;
-import io.vertx.core.spi.cluster.NodeInfo;
-import io.vertx.core.spi.cluster.NodeListener;
-import io.vertx.core.spi.cluster.RegistrationInfo;
-import io.vertx.core.spi.cluster.RegistrationListener;
+import io.vertx.core.spi.cluster.*;
 import io.zenoh.Config;
 import io.zenoh.Session;
 import io.zenoh.Zenoh;
@@ -24,6 +19,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -67,13 +67,10 @@ public class ZenohClusterManager implements ClusterManager {
 
     private volatile boolean active = false;
 
-    private final ObjectMapper objectMapper;
-
-    public ZenohClusterManager(ZenohClusterProperties properties,ObjectMapper objectMapper) {
+    public ZenohClusterManager(ZenohClusterProperties properties) {
         this.properties = properties;
         this.keyPrefix = new KeyPrefixStrategy(properties.getAppName(), properties.getEnvironment());
         this.nodeId = UUID.randomUUID().toString();
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -266,6 +263,10 @@ public class ZenohClusterManager implements ClusterManager {
         logger.info("Opening Zenoh session with mode={}, connect={}, listen={}",
                 properties.getMode(), properties.getConnect(), properties.getListen());
 
+        // Initialize Zenoh logging from RUST_LOG environment variable
+        Zenoh.tryInitLogFromEnv();
+
+
         Config config;
         if (properties.getConfigFile() != null && !properties.getConfigFile().isEmpty()) {
             config = Config.fromFile(new File(properties.getConfigFile()));
@@ -293,8 +294,162 @@ public class ZenohClusterManager implements ClusterManager {
             config.insertJson5("listen/endpoints", endpointsJson);
         }
 
+
+
+        // Apply backend storage configuration (skip for in-memory mode)
+        String backend = properties.getBackend();
+        if (backend != null && !backend.isEmpty() && !"none".equalsIgnoreCase(backend)) {
+            applyBackendConfig(config);
+        }
+
+        logger.info("config:{}",config.getJson("plugins"));
+
         this.zenohSession = Zenoh.open(config);
         logger.info("Zenoh session opened successfully");
+    }
+
+    private static final String SM_PREFIX = "plugins/storage_manager";
+    private static final String CLASSPATH_PREFIX = "classpath:";
+
+    /**
+     * Apply backend storage plugin configuration.
+     * Supports filesystem, rocksdb, and s3 backends with configurable plugin loading.
+     */
+    private void applyBackendConfig(Config config) throws ZError {
+        String backend = properties.getBackend();
+        String pluginLibName = resolvePluginLibName(backend);
+        String pluginDir = resolvePluginDir(pluginLibName);
+        String storageKeyExpr = keyPrefix.getRoot() + "/**";
+        String volumeName = backend;
+        String storageName = "vertx_" + backend;
+
+        logger.info("Configuring backend: type={}, pluginDir={}, key_expr={}", backend, pluginDir, storageKeyExpr);
+
+        // 开启插件加载
+        config.insertJson5("plugins_loading/enabled","true");
+
+        // __path__ must point to the DIRECTORY containing the plugin library
+        // Zenoh will automatically search for matching .so/.dylib/.dll in this directory
+        config.insertJson5(SM_PREFIX + "/volumes/" + volumeName + "/__path__", "[\"" + pluginDir + "\"]");
+
+        // Configure storage: key_expr
+        config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/key_expr", "\"" + storageKeyExpr + "\"");
+
+        // Backend-specific storage properties: volume must be an object with {id, ...volume_cfg}
+        switch (backend.toLowerCase()) {
+            case "filesystem", "fs" -> {
+                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume",
+                        "{\"id\": \"" + volumeName + "\", \"dir\": \"" + properties.getStorageDir() + "\"}");
+                logger.info("Filesystem backend: storage dir={}", properties.getStorageDir());
+            }
+            case "rocksdb" -> {
+                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume",
+                        "{\"id\": \"" + volumeName + "\", \"dir\": \"" + properties.getStorageDir() + "\"}");
+                logger.info("RocksDB backend: storage dir={}", properties.getStorageDir());
+            }
+            case "s3" -> {
+                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume", "\"" + volumeName + "\"");
+                logger.info("S3 backend configured (bucket/endpoint via plugin extra config)");
+            }
+            default -> {
+                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume", "\"" + volumeName + "\"");
+                logger.warn("Unknown backend type: {}, applying generic config", backend);
+            }
+        }
+
+        logger.info("Backend '{}' configured successfully, pluginDir={}", backend, pluginDir);
+    }
+
+    /**
+     * Resolve the plugin library name based on backend type and OS.
+     */
+    private String resolvePluginLibName(String backend) {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        String ext;
+        if (os.contains("mac") || os.contains("darwin")) {
+            ext = ".dylib";
+        } else if (os.contains("win")) {
+            ext = ".dll";
+        } else {
+            ext = ".so";
+        }
+
+        String libPrefix = switch (backend.toLowerCase()) {
+            case "filesystem", "fs" -> "libzenoh_backend_fs";
+            default -> "libzenoh_backend_" + backend;
+        };
+
+        return libPrefix + ext;
+    }
+
+    /**
+     * Resolve the directory containing the plugin library.
+     * Supports classpath: prefix for loading from classpath resources,
+     * or filesystem directory path.
+     * Zenoh's __path__ expects the directory containing the plugin, not the file itself.
+     */
+    private String resolvePluginDir(String pluginLibName) {
+        String pluginDir = properties.getPluginDir();
+
+        // Classpath loading: extract resource to temp dir, return temp dir path
+        if (pluginDir.startsWith(CLASSPATH_PREFIX)) {
+            String classpathDir = pluginDir.substring(CLASSPATH_PREFIX.length());
+            return extractFromClasspath(classpathDir, pluginLibName);
+        }
+
+        // Filesystem directory: verify plugin exists in the directory
+        File dir = new File(pluginDir);
+        File pluginFile = new File(dir, pluginLibName);
+        if (pluginFile.exists()) {
+            return toCanonicalPath(dir);
+        }
+
+        // Fallback: try current directory
+        File fallback = new File(pluginLibName);
+        if (fallback.exists()) {
+            return fallback.getParentFile() != null ? toCanonicalPath(fallback.getParentFile()) : ".";
+        }
+
+        logger.warn("Plugin file not found: {} in dir: {}", pluginLibName, pluginDir);
+        return toCanonicalPath(dir);
+    }
+
+    private static String toCanonicalPath(File file) {
+        try {
+            return file.getCanonicalPath();
+        } catch (IOException e) {
+            return file.getAbsolutePath();
+        }
+    }
+
+    /**
+     * Extract a plugin library from classpath to a temporary directory.
+     */
+    private String extractFromClasspath(String classpathDir, String pluginLibName) {
+        String resourcePath = classpathDir.isEmpty() ? pluginLibName : classpathDir + "/" + pluginLibName;
+        // Normalize path
+        if (resourcePath.startsWith("/")) {
+            resourcePath = resourcePath.substring(1);
+        }
+
+        try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                throw new IOException("Plugin resource not found on classpath: " + resourcePath);
+            }
+
+            Path tempDir = Files.createTempDirectory("zenoh-plugin-");
+            Path tempFile = tempDir.resolve(pluginLibName);
+            Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
+            tempFile.toFile().setExecutable(true);
+            tempFile.toFile().deleteOnExit();
+            tempDir.toFile().deleteOnExit();
+
+            logger.info("Extracted plugin from classpath '{}' to '{}'", resourcePath, tempFile);
+            return tempDir.toAbsolutePath().toString();
+        } catch (IOException e) {
+            logger.error("Failed to extract plugin from classpath: {}", resourcePath, e);
+            throw new RuntimeException("Failed to load Zenoh backend plugin from classpath: " + resourcePath, e);
+        }
     }
 
     private void declareLivelinessToken() throws ZError {
@@ -434,7 +589,7 @@ public class ZenohClusterManager implements ClusterManager {
     private void initializeEventBusComponents() {
         logger.info("Initializing EventBus components for nodeId: {}", nodeId);
 
-        this.messageCodec = new ZenohMessageCodec(objectMapper);
+        this.messageCodec = new ZenohMessageCodec();
         this.eventBusPublisher = new ZenohEventBusPublisher(zenohSession, keyPrefix, messageCodec);
         this.eventBusSender = new ZenohEventBusSender(zenohSession, keyPrefix, messageCodec, nodeId, registrations);
         this.eventBusSubscriber = new ZenohEventBusSubscriber(

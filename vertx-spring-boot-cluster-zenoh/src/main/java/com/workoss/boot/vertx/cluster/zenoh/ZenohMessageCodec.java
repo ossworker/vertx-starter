@@ -1,16 +1,12 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.MultiMap;
 import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.eventbus.Message;
+import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.util.Assert;
 
-import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,13 +27,7 @@ public class ZenohMessageCodec {
 
     private static final Logger logger = LoggerFactory.getLogger(ZenohMessageCodec.class);
 
-    //private final ObjectMapper objectMapper = new ObjectMapper();
-
-    private final ObjectMapper objectMapper;
-
-    public ZenohMessageCodec(ObjectMapper objectMapper) {
-        Assert.notNull(objectMapper,"jackson objectMapper 不能为空");
-        this.objectMapper = objectMapper;
+    public ZenohMessageCodec() {
     }
 
     /**
@@ -46,25 +36,25 @@ public class ZenohMessageCodec {
      */
     public byte[] encodeSimple(String address, Object body, MultiMap headers) {
         try {
-            Map<String, Object> jsonMap = new HashMap<>();
-            jsonMap.put("messageId", UUID.randomUUID().toString());
-            jsonMap.put("address", address);
+            JsonObject json = new JsonObject()
+                    .put("messageId", UUID.randomUUID().toString())
+                    .put("address", address);
 
             // Encode headers
             if (headers != null && !headers.isEmpty()) {
-                Map<String, String> headerMap = new HashMap<>();
-                headers.forEach(entry -> headerMap.put(entry.getKey(), entry.getValue()));
-                jsonMap.put("headers", headerMap);
+                JsonObject headerJson = new JsonObject();
+                headers.forEach(entry -> headerJson.put(entry.getKey(), entry.getValue()));
+                json.put("headers", headerJson);
             }
 
             // Encode body
             if (body != null) {
-                jsonMap.put("body", body);
-                jsonMap.put("bodyType", body.getClass().getName());
+                json.put("body", body);
+                json.put("bodyType", body.getClass().getName());
             }
 
-            return objectMapper.writeValueAsBytes(jsonMap);
-        } catch (JsonProcessingException e) {
+            return json.toBuffer().getBytes();
+        } catch (Exception e) {
             logger.error("Failed to encode simple message", e);
             throw new RuntimeException("Failed to encode simple message", e);
         }
@@ -75,31 +65,31 @@ public class ZenohMessageCodec {
      */
     public byte[] encode(Message<?> message) {
         try {
-            Map<String, Object> jsonMap = new HashMap<>();
-            jsonMap.put("messageId", UUID.randomUUID().toString());
-            jsonMap.put("address", message.address());
+            JsonObject json = new JsonObject()
+                    .put("messageId", UUID.randomUUID().toString())
+                    .put("address", message.address());
 
             if (message.replyAddress() != null) {
-                jsonMap.put("replyAddress", message.replyAddress());
+                json.put("replyAddress", message.replyAddress());
             }
 
             // Encode headers
             MultiMap headers = message.headers();
             if (headers != null && !headers.isEmpty()) {
-                Map<String, String> headerMap = new HashMap<>();
-                headers.forEach(entry -> headerMap.put(entry.getKey(), entry.getValue()));
-                jsonMap.put("headers", headerMap);
+                JsonObject headerJson = new JsonObject();
+                headers.forEach(entry -> headerJson.put(entry.getKey(), entry.getValue()));
+                json.put("headers", headerJson);
             }
 
             // Encode body
             Object body = message.body();
             if (body != null) {
-                jsonMap.put("body", body);
-                jsonMap.put("bodyType", body.getClass().getName());
+                json.put("body", body);
+                json.put("bodyType", body.getClass().getName());
             }
 
-            return objectMapper.writeValueAsBytes(jsonMap);
-        } catch (JsonProcessingException e) {
+            return json.toBuffer().getBytes();
+        } catch (Exception e) {
             logger.error("Failed to encode message", e);
             throw new RuntimeException("Failed to encode message", e);
         }
@@ -109,25 +99,22 @@ public class ZenohMessageCodec {
      * Decode JSON bytes to a DecodedMessage wrapper.
      * Note: This does not create a full Vert.x Message, just extracts the data.
      */
-    @SuppressWarnings("unchecked")
     public DecodedMessage decode(byte[] data) {
         try {
-            Map<String, Object> jsonMap = objectMapper.readValue(data, Map.class);
+            JsonObject json = new JsonObject(io.vertx.core.buffer.Buffer.buffer(data));
 
-            String address = (String) jsonMap.get("address");
-            String replyAddress = (String) jsonMap.get("replyAddress");
-            Object body = jsonMap.get("body");
+            String address = json.getString("address");
+            String replyAddress = json.getString("replyAddress");
+            Object body = json.getValue("body");
 
             DeliveryOptions deliveryOptions = new DeliveryOptions();
-            if (jsonMap.containsKey("headers")) {
-                Map<String, Object> headers = (Map<String, Object>) jsonMap.get("headers");
-                if (headers != null) {
-                    headers.forEach((k, v) -> deliveryOptions.addHeader(k, v.toString()));
-                }
+            JsonObject headers = json.getJsonObject("headers");
+            if (headers != null) {
+                headers.forEach(entry -> deliveryOptions.addHeader(entry.getKey(), entry.getValue().toString()));
             }
 
             return new DecodedMessage(address, replyAddress, body, deliveryOptions);
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("Failed to decode message", e);
             throw new RuntimeException("Failed to decode message", e);
         }
@@ -138,32 +125,32 @@ public class ZenohMessageCodec {
      */
     public byte[] buildSendPayload(Message<?> message, String replyId) {
         try {
-            Map<String, Object> jsonMap = new HashMap<>();
-            jsonMap.put("messageId", UUID.randomUUID().toString());
-            jsonMap.put("address", message.address());
-            jsonMap.put("replyId", replyId);
+            JsonObject json = new JsonObject()
+                    .put("messageId", UUID.randomUUID().toString())
+                    .put("address", message.address())
+                    .put("replyId", replyId);
 
             if (message.replyAddress() != null) {
-                jsonMap.put("originalReplyAddress", message.replyAddress());
+                json.put("originalReplyAddress", message.replyAddress());
             }
 
             // Encode headers
             MultiMap headers = message.headers();
             if (headers != null && !headers.isEmpty()) {
-                Map<String, String> headerMap = new HashMap<>();
-                headers.forEach(entry -> headerMap.put(entry.getKey(), entry.getValue()));
-                jsonMap.put("headers", headerMap);
+                JsonObject headerJson = new JsonObject();
+                headers.forEach(entry -> headerJson.put(entry.getKey(), entry.getValue()));
+                json.put("headers", headerJson);
             }
 
             // Encode body
             Object body = message.body();
             if (body != null) {
-                jsonMap.put("body", body);
-                jsonMap.put("bodyType", body.getClass().getName());
+                json.put("body", body);
+                json.put("bodyType", body.getClass().getName());
             }
 
-            return objectMapper.writeValueAsBytes(jsonMap);
-        } catch (JsonProcessingException e) {
+            return json.toBuffer().getBytes();
+        } catch (Exception e) {
             logger.error("Failed to build send payload", e);
             throw new RuntimeException("Failed to build send payload", e);
         }
@@ -172,26 +159,23 @@ public class ZenohMessageCodec {
     /**
      * Decode send payload from a GET query.
      */
-    @SuppressWarnings("unchecked")
     public SendRequest decodeSendPayload(byte[] data) {
         try {
-            Map<String, Object> jsonMap = objectMapper.readValue(data, Map.class);
+            JsonObject json = new JsonObject(io.vertx.core.buffer.Buffer.buffer(data));
 
-            String address = (String) jsonMap.get("address");
-            String replyId = (String) jsonMap.get("replyId");
-            String originalReplyAddress = (String) jsonMap.get("originalReplyAddress");
-            Object body = jsonMap.get("body");
+            String address = json.getString("address");
+            String replyId = json.getString("replyId");
+            String originalReplyAddress = json.getString("originalReplyAddress");
+            Object body = json.getValue("body");
 
             DeliveryOptions deliveryOptions = new DeliveryOptions();
-            if (jsonMap.containsKey("headers")) {
-                Map<String, Object> headers = (Map<String, Object>) jsonMap.get("headers");
-                if (headers != null) {
-                    headers.forEach((k, v) -> deliveryOptions.addHeader(k, v.toString()));
-                }
+            JsonObject headers = json.getJsonObject("headers");
+            if (headers != null) {
+                headers.forEach(entry -> deliveryOptions.addHeader(entry.getKey(), entry.getValue().toString()));
             }
 
             return new SendRequest(address, replyId, originalReplyAddress, body, deliveryOptions);
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("Failed to decode send payload", e);
             throw new RuntimeException("Failed to decode send payload", e);
         }
@@ -202,18 +186,18 @@ public class ZenohMessageCodec {
      */
     public byte[] buildReplyPayload(String replyId, Message<?> replyMessage) {
         try {
-            Map<String, Object> jsonMap = new HashMap<>();
-            jsonMap.put("replyId", replyId);
-            jsonMap.put("address", replyMessage.address());
+            JsonObject json = new JsonObject()
+                    .put("replyId", replyId)
+                    .put("address", replyMessage.address());
 
             Object body = replyMessage.body();
             if (body != null) {
-                jsonMap.put("body", body);
-                jsonMap.put("bodyType", body.getClass().getName());
+                json.put("body", body);
+                json.put("bodyType", body.getClass().getName());
             }
 
-            return objectMapper.writeValueAsBytes(jsonMap);
-        } catch (JsonProcessingException e) {
+            return json.toBuffer().getBytes();
+        } catch (Exception e) {
             logger.error("Failed to build reply payload", e);
             throw new RuntimeException("Failed to build reply payload", e);
         }
@@ -222,17 +206,16 @@ public class ZenohMessageCodec {
     /**
      * Decode reply payload from a GET response.
      */
-    @SuppressWarnings("unchecked")
     public ReplyResponse decodeReplyPayload(byte[] data) {
         try {
-            Map<String, Object> jsonMap = objectMapper.readValue(data, Map.class);
+            JsonObject json = new JsonObject(io.vertx.core.buffer.Buffer.buffer(data));
 
-            String replyId = (String) jsonMap.get("replyId");
-            String address = (String) jsonMap.get("address");
-            Object body = jsonMap.get("body");
+            String replyId = json.getString("replyId");
+            String address = json.getString("address");
+            Object body = json.getValue("body");
 
             return new ReplyResponse(replyId, address, body);
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("Failed to decode reply payload", e);
             throw new RuntimeException("Failed to decode reply payload", e);
         }

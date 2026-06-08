@@ -20,6 +20,7 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,10 +48,14 @@ public class VertxClientHttpRequestFactory implements ClientHttpRequestFactory, 
 
     @Override
     public void close() {
-        httpClient.close()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+        try {
+            httpClient.close()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .join();
+        } catch (RejectedExecutionException e) {
+            // Vert.x event executor already terminated during shutdown, ignore
+        }
     }
 
     /**

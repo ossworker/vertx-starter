@@ -1,37 +1,42 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.AsyncMap;
 import io.zenoh.Session;
 import io.zenoh.bytes.ZBytes;
 import io.zenoh.exceptions.ZError;
 import io.zenoh.keyexpr.KeyExpr;
 import io.zenoh.query.Reply;
-import io.zenoh.sample.Sample;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.util.*;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
- * AsyncMap implementation backed by Zenoh key-value store.
- * Keys follow the pattern: vertx/{app}/{env}/cluster/maps/{mapName}/{key}
- *
- * Data is serialized using Java serialization and stored as ZBytes in Zenoh.
- * This provides true distributed shared state across cluster nodes.
+ * AsyncMap implementation that directly queries Zenoh storage backend.
+ * <p>
+ * No local cache. All read/write operations go through Zenoh session:
+ * <ul>
+ *   <li>put → session.put() (write to storage backend)</li>
+ *   <li>get → session.get() (query from storage backend)</li>
+ *   <li>remove → session.delete() (delete from storage backend)</li>
+ * </ul>
+ * Requires a storage backend (e.g. filesystem) to be configured for data persistence.
  */
 public class ZenohAsyncMap<K, V> implements AsyncMap<K, V> {
 
     private static final Logger logger = LoggerFactory.getLogger(ZenohAsyncMap.class);
 
+    private static final long QUERY_TIMEOUT_SECONDS = 5;
+
     private final String mapName;
     private final KeyPrefixStrategy keyPrefix;
     private final Session session;
-    // Local cache for fast reads - eventually consistent with Zenoh
-    private final Map<K, V> localCache = new ConcurrentHashMap<>();
+
 
     public ZenohAsyncMap(String mapName, KeyPrefixStrategy keyPrefix, Session session) {
         this.mapName = mapName;
@@ -42,202 +47,335 @@ public class ZenohAsyncMap<K, V> implements AsyncMap<K, V> {
     @Override
     public Future<V> get(K k) {
         if (session == null) {
-            return Future.succeededFuture(localCache.get(k));
+            return Future.succeededFuture(null);
         }
         String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        try {
-            KeyExpr keyExpr = KeyExpr.tryFrom(key);
-            BlockingQueue<Optional<Reply>> replies = session.get(keyExpr.into());
-            keyExpr.close();
-            while (true) {
-                Optional<Reply> wrapper = replies.take();
-                if (wrapper.isEmpty()) {
-                    break;
-                }
-                Reply reply = wrapper.get();
-                if (reply instanceof Reply.Success success) {
-                    Sample sample = success.getSample();
-                    V value = deserialize(sample.getPayload().toBytes());
-                    if (value != null) {
-                        localCache.put(k, value);
-                        return Future.succeededFuture(value);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to get from Zenoh, falling back to local cache: {}", e.getMessage());
-        }
-        return Future.succeededFuture(localCache.get(k));
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> querySingle(key))
+        );
     }
 
     @Override
     public Future<Void> put(K k, V v) {
-        localCache.put(k, v);
-        if (session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(v);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to put to Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture();
+        if (session == null) return Future.succeededFuture();
+        String key = keyPrefix.mapKey(mapName, serializeKey(k));
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    doPut(key, serialize(v));
+                    return null;
+                })
+        );
     }
 
     @Override
     public Future<Void> put(K k, V v, long ttl) {
-        // Zenoh doesn't natively support TTL on key-value, store with local expiration tracking
-        localCache.put(k, v);
-        if (session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(v);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to put to Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture();
+        return put(k, v);
     }
 
     @Override
     public Future<V> putIfAbsent(K k, V v) {
-        V existing = localCache.putIfAbsent(k, v);
-        if (existing == null && session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(v);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to putIfAbsent to Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(existing);
+        if (session == null) return Future.succeededFuture(null);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String entryKey = serializeKey(k);
+                    String key = keyPrefix.mapKey(mapName, entryKey);
+                    V existing = querySingle(key);
+                    if (existing != null) return existing;
+                    doPut(key, serialize(v));
+                    return null;
+                })
+        );
     }
 
     @Override
     public Future<V> putIfAbsent(K k, V v, long ttl) {
-        V existing = localCache.putIfAbsent(k, v);
-        if (existing == null && session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(v);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to putIfAbsent to Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(existing);
+        return putIfAbsent(k, v);
     }
 
     @Override
     public Future<V> remove(K k) {
-        V removed = localCache.remove(k);
-        if (session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                session.delete(keyExpr);
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to delete from Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(removed);
+        if (session == null) return Future.succeededFuture(null);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String entryKey = serializeKey(k);
+                    String key = keyPrefix.mapKey(mapName, entryKey);
+                    V old = querySingle(key);
+                    doDelete(key);
+                    return old;
+                })
+        );
     }
 
     @Override
     public Future<Boolean> removeIfPresent(K k, V v) {
-        boolean removed = localCache.remove(k, v);
-        if (removed && session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                session.delete(keyExpr);
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to delete from Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(removed);
+        if (session == null) return Future.succeededFuture(false);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String entryKey = serializeKey(k);
+                    String key = keyPrefix.mapKey(mapName, entryKey);
+                    V current = querySingle(key);
+                    if (current != null && current.equals(v)) {
+                        doDelete(key);
+                        return true;
+                    }
+                    return false;
+                })
+        );
     }
 
     @Override
     public Future<V> replace(K k, V v) {
-        V old = localCache.replace(k, v);
-        if (old != null && session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(v);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to replace in Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(old);
+        if (session == null) return Future.succeededFuture(null);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String entryKey = serializeKey(k);
+                    String key = keyPrefix.mapKey(mapName, entryKey);
+                    V current = querySingle(key);
+                    if (current != null) {
+                        doPut(key, serialize(v));
+                        return current;
+                    }
+                    return null;
+                })
+        );
     }
 
     @Override
     public Future<Boolean> replaceIfPresent(K k, V oldValue, V newValue) {
-        boolean replaced = localCache.replace(k, oldValue, newValue);
-        if (replaced && session != null) {
-            String key = keyPrefix.mapKey(mapName, serializeKey(k));
-            try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                byte[] data = serialize(newValue);
-                session.put(keyExpr, ZBytes.from(data));
-                keyExpr.close();
-            } catch (ZError e) {
-                logger.warn("Failed to replaceIfPresent in Zenoh: {}", e.getMessage());
-            }
-        }
-        return Future.succeededFuture(replaced);
+        if (session == null) return Future.succeededFuture(false);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String entryKey = serializeKey(k);
+                    String key = keyPrefix.mapKey(mapName, entryKey);
+                    V current = querySingle(key);
+                    if (current != null && current.equals(oldValue)) {
+                        doPut(key, serialize(newValue));
+                        return true;
+                    }
+                    return false;
+                })
+        );
     }
 
     @Override
     public Future<Void> clear() {
-        localCache.clear();
-        // In Zenoh we'd need to delete all keys matching the map pattern
-        // This is a best-effort operation
-        return Future.succeededFuture();
+        if (session == null) return Future.succeededFuture();
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    String pattern = keyPrefix.mapPattern(mapName);
+                    List<String> keys = queryKeys(pattern);
+                    for (String key : keys) {
+                        doDelete(key);
+                    }
+                    return null;
+                })
+        );
     }
 
     @Override
     public Future<Integer> size() {
-        return Future.succeededFuture(localCache.size());
+        if (session == null) return Future.succeededFuture(0);
+        String pattern = keyPrefix.mapPattern(mapName);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> queryKeys(pattern).size())
+        );
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Future<Set<K>> keys() {
-        return Future.succeededFuture(Set.copyOf(localCache.keySet()));
+        if (session == null) return Future.succeededFuture(Set.of());
+        String pattern = keyPrefix.mapPattern(mapName);
+        String mapsPrefix = keyPrefix.getPrefix() + "/maps/";
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    List<String> fullKeys = queryKeys(pattern);
+                    Set<K> result = new HashSet<>();
+                    for (String fullKey : fullKeys) {
+                        String remainder = fullKey.substring(mapsPrefix.length());
+                        int slashIdx = remainder.indexOf('/');
+                        if (slashIdx > 0) {
+                            result.add((K) remainder.substring(slashIdx + 1));
+                        }
+                    }
+                    return result;
+                })
+        );
     }
 
     @Override
     public Future<List<V>> values() {
-        return Future.succeededFuture(List.copyOf(localCache.values()));
+        if (session == null) return Future.succeededFuture(List.of());
+        String pattern = keyPrefix.mapPattern(mapName);
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    List<byte[]> rawValues = queryAll(pattern);
+                    List<V> result = new ArrayList<>();
+                    for (byte[] data : rawValues) {
+                        V v = deserialize(data);
+                        if (v != null) result.add(v);
+                    }
+                    return result;
+                })
+        );
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public Future<Map<K, V>> entries() {
-        return Future.succeededFuture(Map.copyOf(localCache));
+        if (session == null) return Future.succeededFuture(Map.of());
+        String pattern = keyPrefix.mapPattern(mapName);
+        String mapsPrefix = keyPrefix.getPrefix() + "/maps/";
+        return Future.fromCompletionStage(
+                CompletableFuture.supplyAsync(() -> {
+                    Map<K, V> result = new HashMap<>();
+                    var replies = doQuery(pattern);
+                    if (replies == null) return result;
+                    try {
+                        Optional<Reply> opt;
+                        while ((opt = replies.poll(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) != null) {
+                            if (opt.isEmpty()) break;
+                            Reply reply = opt.get();
+                            if (reply instanceof Reply.Success success) {
+                                var sample = success.getSample();
+                                String fullKey = sample.getKeyExpr().toString();
+                                String remainder = fullKey.substring(mapsPrefix.length());
+                                int slashIdx = remainder.indexOf('/');
+                                if (slashIdx > 0) {
+                                    K key = (K) remainder.substring(slashIdx + 1);
+                                    V value = deserialize(sample.getPayload().toBytes());
+                                    if (value != null) result.put(key, value);
+                                }
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        replies.clear();
+                    }
+                    return result;
+                })
+        );
     }
+
+    // --- Zenoh I/O helpers ---
+
+    /**
+     * Query a single value from Zenoh storage.
+     */
+    @SuppressWarnings("unchecked")
+    private V querySingle(String key) {
+        try {
+            KeyExpr keyExpr = KeyExpr.tryFrom(key);
+            var replies = session.get(keyExpr);
+            try {
+                var opt = replies.poll(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                if (opt != null && opt.isPresent()) {
+                    Reply reply = opt.get();
+                    if (reply instanceof Reply.Success success) {
+                        byte[] data = success.getSample().getPayload().toBytes();
+                        return (V) deserialize(data);
+                    }
+                }
+            } finally {
+                replies.clear();
+            }
+            keyExpr.close();
+        } catch (Exception e) {
+            logger.debug("Failed to query Zenoh for key '{}': {}", key, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Query all matching key names.
+     */
+    private List<String> queryKeys(String pattern) {
+        List<String> keys = new ArrayList<>();
+        var replies = doQuery(pattern);
+        if (replies == null) return keys;
+        try {
+            Optional<Reply> opt;
+            while ((opt = replies.poll(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) != null) {
+                if (opt.isEmpty()) break;
+                Reply reply = opt.get();
+                if (reply instanceof Reply.Success success) {
+                    keys.add(success.getSample().getKeyExpr().toString());
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            replies.clear();
+        }
+        return keys;
+    }
+
+    /**
+     * Query all matching values (raw bytes).
+     */
+    private List<byte[]> queryAll(String pattern) {
+        List<byte[]> values = new ArrayList<>();
+        var replies = doQuery(pattern);
+        if (replies == null) return values;
+        try {
+            Optional<Reply> opt;
+            while ((opt = replies.poll(QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) != null) {
+                if (opt.isEmpty()) break;
+                Reply reply = opt.get();
+                if (reply instanceof Reply.Success success) {
+                    values.add(success.getSample().getPayload().toBytes());
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            replies.clear();
+        }
+        return values;
+    }
+
+    /**
+     * Execute a Zenoh get query, returning the replies queue.
+     */
+    private java.util.concurrent.BlockingQueue<Optional<Reply>> doQuery(String pattern) {
+        try {
+            KeyExpr keyExpr = KeyExpr.tryFrom(pattern);
+            var replies = session.get(keyExpr);
+            keyExpr.close();
+            return replies;
+        } catch (Exception e) {
+            logger.debug("Failed to query Zenoh pattern '{}': {}", pattern, e.getMessage());
+            return null;
+        }
+    }
+
+    private void doPut(String key, byte[] data) {
+        try {
+            KeyExpr keyExpr = KeyExpr.tryFrom(key);
+            session.put(keyExpr, ZBytes.from(data));
+            keyExpr.close();
+        } catch (ZError e) {
+            logger.warn("Failed to put to Zenoh '{}': {}", key, e.getMessage());
+        }
+    }
+
+    private void doDelete(String key) {
+        try {
+            KeyExpr keyExpr = KeyExpr.tryFrom(key);
+            session.delete(keyExpr);
+            keyExpr.close();
+        } catch (ZError e) {
+            logger.warn("Failed to delete from Zenoh '{}': {}", key, e.getMessage());
+        }
+    }
+
+    // --- Serialization ---
 
     private String serializeKey(K key) {
         if (key instanceof String s) {
             return s;
         }
-        // Base64 encode the serialized key for non-string keys
         byte[] data = serialize(key);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
     }

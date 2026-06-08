@@ -4,6 +4,7 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.web.server.Compression;
 import org.springframework.http.server.reactive.HttpHandler;
 
@@ -31,7 +32,7 @@ class VertxReactiveWebServerFactoryTest {
     @Test
     void usesSpringBootPortProperty() {
         VertxHttpServerProperties props = new VertxHttpServerProperties();
-        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props);
+        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props, new ServerProperties());
         factory.setPort(9999);
 
         HttpHandler handler = mock(HttpHandler.class);
@@ -43,7 +44,7 @@ class VertxReactiveWebServerFactoryTest {
     @Test
     void usesSpringBootAddress() throws Exception {
         VertxHttpServerProperties props = new VertxHttpServerProperties();
-        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props);
+        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props,new ServerProperties());
         factory.setAddress(InetAddress.getByName("127.0.0.1"));
 
         assertThat(factory.getAddress().getHostAddress()).isEqualTo("127.0.0.1");
@@ -53,7 +54,7 @@ class VertxReactiveWebServerFactoryTest {
     void usesSpringBootCompressionEnabled() {
         VertxHttpServerProperties props = new VertxHttpServerProperties();
         props.setCompressionLevel(3);
-        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props);
+        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props,new ServerProperties());
 
         Compression compression = new Compression();
         compression.setEnabled(true);
@@ -77,7 +78,7 @@ class VertxReactiveWebServerFactoryTest {
     @Test
     void webServerCanBeCreated() {
         VertxHttpServerProperties props = new VertxHttpServerProperties();
-        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props);
+        VertxReactiveWebServerFactory factory = new VertxReactiveWebServerFactory(vertx, props,new ServerProperties());
 
         HttpHandler handler = mock(HttpHandler.class);
         VertxWebServer webServer = (VertxWebServer) factory.getWebServer(handler);

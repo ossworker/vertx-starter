@@ -18,9 +18,9 @@ import java.util.List;
 /**
  * Auto-configuration for the core Vert.x instance.
  * <p>
- * For Zenoh-based clustering, this creates a non-clustered Vert.x instance
- * (local EventBus) and relies on ZenohEventBusBridge for cross-node communication.
- * This avoids the need for additional TCP ports used by Vert.x's built-in ClusteredEventBus.
+ * When clustering is enabled with a Zenoh ClusterManager, creates a clustered Vert.x
+ * instance via buildClustered(). The ClusterManager handles all cluster-wide operations
+ * (EventBus, AsyncMap, Counter, Lock) through Zenoh, no extra TCP ports needed.
  */
 @AutoConfiguration
 @ConditionalOnClass(Vertx.class)
@@ -62,41 +62,22 @@ public class VertxAutoConfiguration {
         if (properties.getCluster().isEnabled()) {
             ClusterManager clusterManager = clusterManagerProvider.getIfAvailable();
             if (clusterManager != null) {
-                // Check if this is a Zenoh-based cluster manager
-                boolean isZenohCluster = isZenohClusterManager(clusterManager);
-
-                if (isZenohCluster) {
-                    // For Zenoh: create non-clustered Vert.x with local EventBus
-                    // Cross-node communication is handled by ZenohEventBusBridge
-                    logger.info("Creating Vert.x instance with Zenoh cluster (local EventBus + Zenoh bridge)");
-                    return builder.build();
-                } else {
-                    // For other cluster managers (Hazelcast, etc.): use built-in ClusteredEventBus
-                    builder.withClusterManager(clusterManager);
-                    logger.info("Creating clustered Vert.x instance with built-in ClusteredEventBus");
-                    Vertx vertx = builder
-                            .buildClustered()
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .join();
-                    logger.info("Clustered Vert.x instance created successfully");
-                    return vertx;
-                }
+                builder.withClusterManager(clusterManager);
+                logger.info("Creating clustered Vert.x instance with ClusterManager: {}",
+                        clusterManager.getClass().getSimpleName());
+                Vertx vertx = builder
+                        .buildClustered()
+                        .toCompletionStage()
+                        .toCompletableFuture()
+                        .join();
+                logger.info("Clustered Vert.x instance created successfully");
+                return vertx;
             }
-            logger.info("Creating standalone Vert.x instance (no ClusterManager available)");
-            return builder.build();
-        } else {
-            logger.info("Creating standalone Vert.x instance");
-            return builder.build();
+            logger.warn("Cluster enabled but no ClusterManager available, creating standalone Vert.x");
         }
-    }
 
-    /**
-     * Check if the cluster manager is Zenoh-based.
-     */
-    private boolean isZenohClusterManager(ClusterManager clusterManager) {
-        return clusterManager.getClass().getName().contains("zenoh") ||
-               clusterManager.getClass().getSimpleName().contains("Zenoh");
+        logger.info("Creating standalone Vert.x instance");
+        return builder.build();
     }
 
     @Bean

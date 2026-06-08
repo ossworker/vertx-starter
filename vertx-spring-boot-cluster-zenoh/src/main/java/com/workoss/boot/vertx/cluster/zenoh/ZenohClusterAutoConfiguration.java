@@ -1,7 +1,5 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.vertx.core.Vertx;
 import io.vertx.core.spi.cluster.ClusterManager;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -23,8 +21,8 @@ public class ZenohClusterAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(ClusterManager.class)
-    public ZenohClusterManager zenohClusterManager(ZenohClusterProperties properties, ObjectMapper objectMapper) {
-        return new ZenohClusterManager(properties, objectMapper);
+    public ZenohClusterManager zenohClusterManager(ZenohClusterProperties properties) {
+        return new ZenohClusterManager(properties);
     }
 
     @Bean
