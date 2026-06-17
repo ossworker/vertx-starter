@@ -1,10 +1,7 @@
 package com.workoss.boot.vertx.web.server;
 
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerRequest;
-import org.reactivestreams.Publisher;
 import org.springframework.core.io.buffer.DataBuffer;
-import org.springframework.core.io.buffer.DefaultDataBufferFactory;
 import org.springframework.http.HttpCookie;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -13,7 +10,6 @@ import org.springframework.http.server.reactive.SslInfo;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -23,13 +19,29 @@ import java.net.URI;
  */
 public class VertxServerHttpRequest extends AbstractServerHttpRequest {
 
+    /** Empty body flux shared by all body-less requests (GET, HEAD, etc.). */
+    private static final Flux<DataBuffer> EMPTY_BODY = Flux.empty();
+
     private final HttpServerRequest request;
     private final Flux<DataBuffer> body;
 
     public VertxServerHttpRequest(HttpServerRequest request) {
         super(HttpMethod.valueOf(request.method().name()), buildUri(request), null, buildHeaders(request));
         this.request = request;
-        this.body = buildBody(request);
+        this.body = hasBody(request.method())
+                ? Flux.from(new VertxRequestBodyPublisher(request))
+                : EMPTY_BODY;
+    }
+
+    /**
+     * Returns {@code true} if the HTTP method typically carries a request body.
+     * GET, HEAD, DELETE, OPTIONS, TRACE never have a meaningful body.
+     */
+    private static boolean hasBody(io.vertx.core.http.HttpMethod method) {
+        return method != io.vertx.core.http.HttpMethod.GET
+                && method != io.vertx.core.http.HttpMethod.HEAD
+                && method != io.vertx.core.http.HttpMethod.OPTIONS
+                && method != io.vertx.core.http.HttpMethod.TRACE;
     }
 
     private static URI buildUri(HttpServerRequest request) {
@@ -43,31 +55,12 @@ public class VertxServerHttpRequest extends AbstractServerHttpRequest {
         }
     }
 
+    /**
+     * Build Spring {@link HttpHeaders} backed by a lazy view over Vert.x MultiMap.
+     * Avoids the eager full-copy of headers on every request.
+     */
     private static HttpHeaders buildHeaders(HttpServerRequest request) {
-        HttpHeaders headers = new HttpHeaders();
-        request.headers().forEach(entry -> headers.add(entry.getKey(), entry.getValue()));
-        return headers;
-    }
-
-    private Flux<DataBuffer> buildBody(HttpServerRequest request) {
-        Sinks.Many<DataBuffer> sink = Sinks.many().unicast().onBackpressureBuffer();
-
-        request.handler(buffer -> {
-            DataBuffer dataBuffer = DefaultDataBufferFactory.sharedInstance
-                    .wrap(buffer.getBytes());
-            sink.tryEmitNext(dataBuffer);
-        });
-
-        request.endHandler(v -> sink.tryEmitComplete());
-
-        request.exceptionHandler(err -> sink.tryEmitError(err));
-
-        // Pause initially; resume when subscribed (backpressure support)
-        request.pause();
-
-        return sink.asFlux()
-                .doOnSubscribe(s -> request.resume())
-                .doOnCancel(() -> request.pause());
+        return new HttpHeaders(new VertxHttpHeadersAdapter(request.headers()));
     }
 
     @Override

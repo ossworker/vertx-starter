@@ -1,23 +1,19 @@
 package com.workoss.boot.vertx.data.dict.cache.spring;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.zenoh.Session;
-import io.zenoh.bytes.ZBytes;
-import io.zenoh.keyexpr.KeyExpr;
-import io.zenoh.query.Reply;
+import com.workoss.zenoh.Reply;
+import com.workoss.zenoh.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.Cache;
 
-import java.io.IOException;
-import java.util.Optional;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Spring {@link Cache} implementation backed by Zenoh.
+ * Spring {@link Cache} implementation backed by Zenoh via zenoh-jni.
  * <p>
  * Stores cache entries in Zenoh, which delegates to a Zenoh Router
  * with RocksDB storage for persistence.
@@ -54,10 +50,8 @@ public class ZenohCache implements Cache {
             Session session = sessionSupplier.get();
             if (session == null) return null;
             String zenohKey = buildKey(key);
-            KeyExpr keyExpr = KeyExpr.tryFrom(zenohKey);
-            java.util.concurrent.BlockingQueue<Optional<Reply>> replies = session.get(keyExpr);
+            List<Reply> replies = session.get(zenohKey);
             Object value = parseReply(replies);
-            keyExpr.close();
 
             if (value != null) {
                 logger.debug("Zenoh cache hit for key={}", key);
@@ -104,10 +98,8 @@ public class ZenohCache implements Cache {
             Session session = sessionSupplier.get();
             if (session == null) return;
             String zenohKey = buildKey(key);
-            KeyExpr keyExpr = KeyExpr.tryFrom(zenohKey);
             String json = objectMapper.writeValueAsString(new CacheValue(value));
-            session.put(keyExpr, json);
-            keyExpr.close();
+            session.put(zenohKey, json.getBytes(StandardCharsets.UTF_8));
             logger.debug("Zenoh cache put for key={}", key);
         } catch (Exception e) {
             logger.warn("Zenoh cache put failed for key={}: {}", key, e.getMessage());
@@ -120,9 +112,7 @@ public class ZenohCache implements Cache {
             Session session = sessionSupplier.get();
             if (session == null) return;
             String zenohKey = buildKey(key);
-            KeyExpr keyExpr = KeyExpr.tryFrom(zenohKey);
-            session.delete(keyExpr);
-            keyExpr.close();
+            session.delete(zenohKey);
             logger.debug("Zenoh cache evict for key={}", key);
         } catch (Exception e) {
             logger.warn("Zenoh cache evict failed for key={}: {}", key, e.getMessage());
@@ -131,7 +121,6 @@ public class ZenohCache implements Cache {
 
     @Override
     public void clear() {
-        // Zenoh doesn't support prefix-based deletion
         logger.info("Zenoh cache clear not supported");
     }
 
@@ -139,30 +128,16 @@ public class ZenohCache implements Cache {
         return keyPrefix + name + "/" + key.toString().replaceAll("[^a-zA-Z0-9.-]", "_");
     }
 
-    private Object parseReply(java.util.concurrent.BlockingQueue<Optional<Reply>> replies) {
+    private Object parseReply(List<Reply> replies) {
         try {
-            Optional<Reply> replyOpt = replies.poll(2, TimeUnit.SECONDS);
-            if (replyOpt == null || !replyOpt.isPresent()) {
-                return null;
-            }
-            Reply reply = replyOpt.get();
-            Object sample = invokeGetSample(reply);
-            if (sample == null) return null;
-            Object payload = sample.getClass().getMethod("getPayload").invoke(sample);
-            byte[] data = ((io.zenoh.bytes.ZBytes) payload).toBytes();
+            if (replies == null || replies.isEmpty()) return null;
+            Reply reply = replies.get(0);
+            if (!reply.success() || reply.samplePayload().isEmpty()) return null;
+            byte[] data = reply.samplePayload().get();
             CacheValue cacheValue = objectMapper.readValue(data, CacheValue.class);
             return cacheValue.getValue();
         } catch (Exception e) {
             logger.debug("Failed to parse Zenoh reply: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    private Object invokeGetSample(Reply reply) {
-        try {
-            java.lang.reflect.Method getSampleMethod = reply.getClass().getMethod("getSample");
-            return getSampleMethod.invoke(reply);
-        } catch (Exception e) {
             return null;
         }
     }

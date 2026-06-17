@@ -24,21 +24,21 @@ public class KeyPrefixStrategy {
      * Get the key for node liveliness.
      */
     public String nodeKey(String nodeId) {
-        return clusterPrefix + "/nodes/" + nodeId;
+        return root + "/nodes/" + nodeId;
     }
 
     /**
      * Get the key expression pattern for all nodes.
      */
     public String allNodesPattern() {
-        return clusterPrefix + "/nodes/*";
+        return root + "/nodes/*";
     }
 
     /**
      * Get the key for node info.
      */
     public String nodeInfoKey(String nodeId) {
-        return clusterPrefix + "/nodeinfo/" + nodeId;
+        return root + "/nodeinfo/" + nodeId;
     }
 
     /**
@@ -73,21 +73,21 @@ public class KeyPrefixStrategy {
      * Get the key for EventBus handler registration.
      */
     public String registrationKey(String address, String nodeId) {
-        return clusterPrefix + "/registrations/" + sanitize(address) + "/" + nodeId;
+        return root + "/registrations/" + sanitize(address) + "/" + nodeId;
     }
 
     /**
      * Get the key expression pattern for all registrations of an address.
      */
     public String registrationPattern(String address) {
-        return clusterPrefix + "/registrations/" + sanitize(address) + "/*";
+        return root + "/registrations/" + sanitize(address) + "/*";
     }
 
     /**
      * Get the key expression pattern for all registrations.
      */
     public String allRegistrationsPattern() {
-        return clusterPrefix + "/registrations/**";
+        return root + "/registrations/**";
     }
 
     // --- EventBus keys ---
@@ -124,7 +124,7 @@ public class KeyPrefixStrategy {
      * Get the key expression pattern for all registrations.
      */
     public String registrationsPattern() {
-        return clusterPrefix + "/registrations/**";
+        return root + "/registrations/**";
     }
 
     // --- Accessors ---

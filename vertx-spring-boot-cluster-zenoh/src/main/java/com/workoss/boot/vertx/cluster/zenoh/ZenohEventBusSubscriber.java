@@ -1,17 +1,18 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
+import com.workoss.zenoh.Session;
+import com.workoss.zenoh.Subscriber;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.DeliveryOptions;
-import io.zenoh.Session;
-import io.zenoh.exceptions.ZError;
-import io.zenoh.keyexpr.KeyExpr;
-import io.zenoh.pubsub.CallbackSubscriber;
-import io.zenoh.sample.Sample;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 /**
  * Subscribes to EventBus messages from remote nodes via Zenoh Pub/Sub.
+ * Uses zenoh-jni Subscriber with polling threads.
  */
 public class ZenohEventBusSubscriber {
 
@@ -23,8 +24,11 @@ public class ZenohEventBusSubscriber {
     private final Vertx vertx;
     private final String localNodeId;
 
-    private CallbackSubscriber pubSubscriber;
-    private CallbackSubscriber inboxSubscriber;
+    private Subscriber pubSubscriber;
+    private Subscriber inboxSubscriber;
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private Thread pubPollThread;
+    private Thread inboxPollThread;
 
     public ZenohEventBusSubscriber(Session session, KeyPrefixStrategy keyPrefix, ZenohMessageCodec codec,
                                    Vertx vertx, String localNodeId) {
@@ -39,6 +43,7 @@ public class ZenohEventBusSubscriber {
      * Start subscribing to remote messages.
      */
     public void start() {
+        running.set(true);
         subscribeToPubMessages();
         subscribeToInboxMessages();
         logger.info("EventBus subscriber started for nodeId: {}", localNodeId);
@@ -46,16 +51,42 @@ public class ZenohEventBusSubscriber {
 
     /**
      * Stop subscribing and release resources.
+     * Order: undeclare subscribers first (makes blocking recv() return empty),
+     * then interrupt poll threads, then join to ensure clean exit.
      */
     public void stop() {
+        running.set(false);
+
+        // Step 1: Undeclare subscribers first to make blocking recv() return
         if (pubSubscriber != null) {
-            pubSubscriber.undeclare();
+            try {
+                pubSubscriber.undeclare();
+            } catch (Exception e) {
+                logger.debug("Failed to undeclare pub subscriber");
+            }
             pubSubscriber = null;
         }
         if (inboxSubscriber != null) {
-            inboxSubscriber.undeclare();
+            try {
+                inboxSubscriber.undeclare();
+            } catch (Exception e) {
+                logger.debug("Failed to undeclare inbox subscriber");
+            }
             inboxSubscriber = null;
         }
+
+        // Step 2: Interrupt and join poll threads
+        if (pubPollThread != null) {
+            pubPollThread.interrupt();
+            try { pubPollThread.join(2000); } catch (InterruptedException ignored) {}
+            pubPollThread = null;
+        }
+        if (inboxPollThread != null) {
+            inboxPollThread.interrupt();
+            try { inboxPollThread.join(2000); } catch (InterruptedException ignored) {}
+            inboxPollThread = null;
+        }
+
         logger.info("EventBus subscriber stopped for nodeId: {}", localNodeId);
     }
 
@@ -65,28 +96,35 @@ public class ZenohEventBusSubscriber {
     private void subscribeToPubMessages() {
         try {
             String pubPattern = keyPrefix.eventBusPubPattern();
-            KeyExpr keyExpr = KeyExpr.tryFrom(pubPattern);
+            this.pubSubscriber = new Subscriber(session, pubPattern);
 
-            this.pubSubscriber = session.declareSubscriber(keyExpr, (Sample sample) -> {
-                try {
-                    byte[] data = sample.getPayload().toBytes();
-                    ZenohMessageCodec.DecodedMessage decoded = codec.decode(data);
+            pubPollThread = new Thread(() -> {
+                while (running.get() && pubSubscriber != null && !pubSubscriber.isUndeclared()) {
+                    try {
+                        Optional<com.workoss.zenoh.Sample> sampleOpt = pubSubscriber.recv();
+                        if (sampleOpt.isPresent()) {
+                            com.workoss.zenoh.Sample sample = sampleOpt.get();
+                            byte[] data = sample.payload();
+                            ZenohMessageCodec.DecodedMessage decoded = codec.decode(data);
 
-                    String address = decoded.getAddress();
-                    Object body = decoded.getBody();
-                    DeliveryOptions options = decoded.getDeliveryOptions();
+                            String address = decoded.getAddress();
+                            Object body = decoded.getBody();
+                            DeliveryOptions options = decoded.getDeliveryOptions();
 
-                    // Use publish() to broadcast to all local consumers of this address
-                    vertx.eventBus().publish(address, body, options);
-
-                    logger.debug("Received published message for address: {} from remote node", address);
-                } catch (Exception e) {
-                    logger.error("Failed to process published message", e);
+                            vertx.eventBus().publish(address, body, options);
+                            logger.debug("Received published message for address: {} from remote node", address);
+                        }
+                    } catch (Exception e) {
+                        if (Thread.currentThread().isInterrupted()) break;
+                        logger.debug("Pub poll error: {}", e.getMessage());
+                    }
                 }
-            });
+            }, "zenoh-pub-poll-" + localNodeId.substring(0, 8));
+            pubPollThread.setDaemon(true);
+            pubPollThread.start();
 
             logger.debug("Subscribed to publish messages with pattern: {}", pubPattern);
-        } catch (ZError e) {
+        } catch (Exception e) {
             logger.error("Failed to subscribe to publish messages", e);
         }
     }
@@ -97,36 +135,39 @@ public class ZenohEventBusSubscriber {
     private void subscribeToInboxMessages() {
         try {
             String inboxKey = keyPrefix.eventBusInboxKey(localNodeId);
-            KeyExpr keyExpr = KeyExpr.tryFrom(inboxKey);
+            this.inboxSubscriber = new Subscriber(session, inboxKey);
 
-            this.inboxSubscriber = session.declareSubscriber(keyExpr, (Sample sample) -> {
-                try {
-                    byte[] payload = sample.getPayload().toBytes();
-                    ZenohMessageCodec.SendRequest sendRequest = codec.decodeSendPayload(payload);
+            inboxPollThread = new Thread(() -> {
+                while (running.get() && inboxSubscriber != null && !inboxSubscriber.isUndeclared()) {
+                    try {
+                        Optional<com.workoss.zenoh.Sample> sampleOpt = inboxSubscriber.recv();
+                        if (sampleOpt.isPresent()) {
+                            com.workoss.zenoh.Sample sample = sampleOpt.get();
+                            byte[] payload = sample.payload();
+                            ZenohMessageCodec.SendRequest sendRequest = codec.decodeSendPayload(payload);
 
-                    String address = sendRequest.getAddress();
-                    Object body = sendRequest.getBody();
-                    DeliveryOptions options = sendRequest.getDeliveryOptions();
+                            String address = sendRequest.getAddress();
+                            Object body = sendRequest.getBody();
+                            DeliveryOptions options = sendRequest.getDeliveryOptions();
 
-                    logger.debug("Received send request for address: {}", address);
-
-                    // Forward to local EventBus handler
-                    vertx.eventBus().send(address, body, options);
-
-                } catch (Exception e) {
-                    logger.error("Failed to process send request", e);
+                            logger.debug("Received send request for address: {}", address);
+                            vertx.eventBus().send(address, body, options);
+                        }
+                    } catch (Exception e) {
+                        if (Thread.currentThread().isInterrupted()) break;
+                        logger.debug("Inbox poll error: {}", e.getMessage());
+                    }
                 }
-            });
+            }, "zenoh-inbox-poll-" + localNodeId.substring(0, 8));
+            inboxPollThread.setDaemon(true);
+            inboxPollThread.start();
 
             logger.debug("Subscribed to inbox messages for key: {}", inboxKey);
-        } catch (ZError e) {
+        } catch (Exception e) {
             logger.error("Failed to subscribe to inbox messages", e);
         }
     }
 
-    /**
-     * Get the Vert.x instance used by this subscriber.
-     */
     public io.vertx.core.Vertx getVertx() {
         return vertx;
     }

@@ -53,20 +53,22 @@ public class ZenohClusterProperties {
     private String backend = "none";
 
     /**
-     * Directory or classpath location for the backend plugin library.
+     * Additional plugin search directories for backend plugins.
      * <p>
-     * Resolution order:
-     * <ol>
-     *   <li>If starts with "classpath:", load from classpath resources (extracted to temp dir)</li>
-     *   <li>Otherwise, treat as a filesystem directory path</li>
-     * </ol>
-     * Defaults to "." (current working directory).
+     * The default search directory {@code ~/.zenoh/lib} is always included automatically.
+     * Add extra directories here if plugins are installed in non-standard locations.
+     * <p>
+     * Example: {@code plugin-dir: [/opt/zenoh/plugins, /usr/local/lib/zenoh]}
      */
-    private String pluginDir = "classpath:";
+    private List<String> pluginDir = new ArrayList<>();
 
     /**
-     * Local directory path for filesystem/rocksdb backends to store data.
-     * Only applicable for filesystem and rocksdb backends.
+     * Directory name for filesystem/rocksdb backends to store data.
+     * <p>
+     * The filesystem backend stores data relative to its root directory
+     * ({@code ~/.zenoh/zenoh_backend_fs/}), so the actual path will be
+     * {@code ~/.zenoh/zenoh_backend_fs/<storage-dir>}.
+     * <p>
      * Defaults to "zenoh-storage".
      */
     private String storageDir = "zenoh-storage";
@@ -127,11 +129,11 @@ public class ZenohClusterProperties {
         this.backend = backend;
     }
 
-    public String getPluginDir() {
+    public List<String> getPluginDir() {
         return pluginDir;
     }
 
-    public void setPluginDir(String pluginDir) {
+    public void setPluginDir(List<String> pluginDir) {
         this.pluginDir = pluginDir;
     }
 

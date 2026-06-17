@@ -25,20 +25,20 @@ public class VertxHttpHandlerAdapter implements Handler<HttpServerRequest> {
         VertxServerHttpRequest httpRequest = new VertxServerHttpRequest(request);
         VertxServerHttpResponse httpResponse = new VertxServerHttpResponse(request.response());
 
-        httpHandler.handle(httpRequest, httpResponse)
-                .doOnSuccess(v -> {
+        // Three-arg subscribe avoids the extra LambdaSubscriber wrappers introduced
+        // by doOnSuccess/doOnError, reducing the operator chain length per request.
+        httpHandler.handle(httpRequest, httpResponse).subscribe(
+                null,
+                err -> {
+                    logger.error("Error handling request: {} {}", request.method(), request.uri(), err);
+                    if (!request.response().ended()) {
+                        request.response().setStatusCode(500).end();
+                    }
+                },
+                () -> {
                     if (!request.response().ended()) {
                         request.response().end();
                     }
-                })
-                .doOnError(err -> {
-                    logger.error("Error handling request: {} {}", request.method(), request.uri(), err);
-                    if (!request.response().ended()) {
-                        request.response()
-                                .setStatusCode(500)
-                                .end();
-                    }
-                })
-                .subscribe();
+                });
     }
 }

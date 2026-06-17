@@ -30,6 +30,12 @@ public class VertxSpringBootExampleApplication {
         SpringApplication.run(VertxSpringBootExampleApplication.class, args);
     }
 
+
+    @GetMapping("/ping")
+    public String ok(){
+        return "pong";
+    }
+
     /**
      * 使用 @EventBusListener 注解声明式监听 EventBus 地址。
      * 无需手动调用 vertx.eventBus().consumer()，框架会自动注册 consumer。

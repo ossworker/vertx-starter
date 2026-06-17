@@ -12,12 +12,30 @@ import org.springframework.http.server.reactive.AbstractServerHttpResponse;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.util.List;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Adapts a Vert.x HttpServerResponse to Spring's ServerHttpResponse.
  */
 public class VertxServerHttpResponse extends AbstractServerHttpResponse {
+
+    /** RFC 1123 date formatter for the Date header (e.g. "Wed, 17 Jun 2026 03:17:28 GMT"). */
+    private static final DateTimeFormatter RFC_1123 = DateTimeFormatter.RFC_1123_DATE_TIME;
+
+    /** Cached Date header value, updated every second to avoid per-request formatting overhead. */
+    private static volatile String cachedDateHeader;
+    private static volatile long cachedDateTimestamp;
+
+    private static String getDateHeader() {
+        long now = System.currentTimeMillis();
+        if (now - cachedDateTimestamp >= 1000) {
+            cachedDateHeader = RFC_1123.format(ZonedDateTime.now(ZoneOffset.UTC));
+            cachedDateTimestamp = now;
+        }
+        return cachedDateHeader;
+    }
 
     private final HttpServerResponse response;
 
@@ -42,10 +60,22 @@ public class VertxServerHttpResponse extends AbstractServerHttpResponse {
 
     @Override
     protected void applyHeaders() {
+        // putHeader is set-semantic in Vert.x; skip O(n) contains() probe.
+        io.vertx.core.MultiMap target = response.headers();
+        target.set("Date", getDateHeader());
+        target.set("Connection", "keep-alive");
+
         HttpHeaders headers = getHeaders();
+        if (headers.isEmpty()) {
+            return;
+        }
+        // Bulk-apply via Vert.x MultiMap to avoid per-value method dispatch overhead.
         headers.forEach((name, values) -> {
-            for (String value : values) {
-                response.putHeader(name, value);
+            int size = values.size();
+            if (size == 1) {
+                target.set(name, values.get(0));
+            } else if (size > 1) {
+                target.set(name, values);
             }
         });
     }
@@ -85,17 +115,33 @@ public class VertxServerHttpResponse extends AbstractServerHttpResponse {
 
     @Override
     protected Mono<Void> writeWithInternal(Publisher<? extends DataBuffer> body) {
+        // Optimized write path:
+        // - Single buffer: direct end(buffer) (avoids write + end round-trip)
+        // - Multiple buffers: merge then end
         return Flux.from(body)
-                .flatMap(dataBuffer -> {
-                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
-                    dataBuffer.read(bytes);
-                    DataBufferUtils.release(dataBuffer);
-                    Buffer vertxBuffer = Buffer.buffer(bytes);
-                    return Mono.fromCompletionStage(
-                            response.write(vertxBuffer).toCompletionStage()
-                    );
-                })
-                .then();
+                .collectList()
+                .flatMap(buffers -> {
+                    if (buffers.isEmpty()) {
+                        return Mono.fromCompletionStage(response.end().toCompletionStage());
+                    }
+                    if (buffers.size() == 1) {
+                        // Fast path: single buffer -> direct end(buffer)
+                        DataBuffer db = buffers.get(0);
+                        byte[] bytes = new byte[db.readableByteCount()];
+                        db.read(bytes);
+                        DataBufferUtils.release(db);
+                        return Mono.fromCompletionStage(response.end(Buffer.buffer(bytes)).toCompletionStage());
+                    }
+                    // Multiple buffers: merge then end
+                    Buffer merged = Buffer.buffer();
+                    for (DataBuffer db : buffers) {
+                        byte[] bytes = new byte[db.readableByteCount()];
+                        db.read(bytes);
+                        DataBufferUtils.release(db);
+                        merged.appendBytes(bytes);
+                    }
+                    return Mono.fromCompletionStage(response.end(merged).toCompletionStage());
+                });
     }
 
     @Override

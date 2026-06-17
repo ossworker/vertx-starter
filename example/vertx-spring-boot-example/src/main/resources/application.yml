@@ -1,7 +1,5 @@
 
 
-
-
 spring:
   application:
     name: vertx-spring-boot-example
@@ -12,6 +10,7 @@ spring:
 logging:
   level:
     root: info
+    com.workoss.boot.vertx: debug
 
 server:
   shutdown: graceful
@@ -20,15 +19,32 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
   endpoint:
     health:
       show-details: always
-      show-components: always
 
 vertx:
   cluster:
     enabled: true
   prefer-native-transport: true
   graceful-shutdown-timeout-seconds: 30
+
+# Zenoh cluster configuration
+vertx.cluster.zenoh:
+  app-name: vertx-example
+  environment: dev
+  # Router mode: starts EmbeddedRouter with storage plugin support
+  mode: router
+#  listen:
+#    - "tcp/127.0.0.1:7447"
+  # Filesystem backend for persistent storage (plugin: libzenoh_backend_fs.dylib)
+  # Plugin is searched in ~/.zenoh/lib (default) and any custom plugin-dir entries
+  backend: fs
+  # Additional plugin search dirs (optional, ~/.zenoh/lib is always included)
+#  plugin-dir:
+#    - "/opt/zenoh/plugins"
+  # Storage directory name for filesystem backend
+  # Actual path: ~/.zenoh/zenoh_backend_fs/<storage-dir>
+  storage-dir: "zenoh-storage"
 

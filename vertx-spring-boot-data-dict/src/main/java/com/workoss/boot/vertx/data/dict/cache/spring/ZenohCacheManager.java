@@ -1,7 +1,7 @@
 package com.workoss.boot.vertx.data.dict.cache.spring;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.zenoh.Session;
+import com.workoss.zenoh.Session;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 

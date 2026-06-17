@@ -11,7 +11,7 @@ import com.workoss.boot.vertx.data.dict.cache.spring.CaffeineZenohCacheManager;
 import com.workoss.boot.vertx.data.dict.cache.spring.ZenohCacheManager;
 import com.workoss.boot.vertx.data.dict.repository.DictDataProvider;
 import com.workoss.boot.vertx.data.dict.service.DictService;
-import io.zenoh.Session;
+import com.workoss.zenoh.Session;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;

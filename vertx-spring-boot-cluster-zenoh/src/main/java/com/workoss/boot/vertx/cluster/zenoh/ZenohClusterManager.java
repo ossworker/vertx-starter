@@ -1,39 +1,32 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
+import com.workoss.zenoh.Config;
+import com.workoss.zenoh.EmbeddedRouter;
+import com.workoss.zenoh.Reply;
+import com.workoss.zenoh.Session;
+import com.workoss.zenoh.Subscriber;
 import io.vertx.core.Completable;
 import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.AsyncMap;
 import io.vertx.core.shareddata.Counter;
 import io.vertx.core.shareddata.Lock;
 import io.vertx.core.spi.cluster.*;
-import io.zenoh.Config;
-import io.zenoh.Session;
-import io.zenoh.Zenoh;
-import io.zenoh.exceptions.ZError;
-import io.zenoh.keyexpr.KeyExpr;
-import io.zenoh.liveliness.LivelinessToken;
-import io.zenoh.pubsub.CallbackSubscriber;
-import io.zenoh.sample.Sample;
-import io.zenoh.sample.SampleKind;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Vert.x 5 ClusterManager implementation backed by Zenoh.
+ * Vert.x 5 ClusterManager implementation backed by Zenoh JNI.
  * Supports multi-tenant isolation through key prefix strategy.
+ * Uses zenoh-jni native bindings with storage plugin support via EmbeddedRouter-compatible Config.
  *
  * Key prefix scheme: vertx/{app-name}/{environment}/cluster/...
  * Different apps/environments sharing the same Zenoh network are completely isolated.
@@ -52,8 +45,11 @@ public class ZenohClusterManager implements ClusterManager {
     private NodeInfo nodeInfo;
 
     private Session zenohSession;
-    private LivelinessToken livelinessToken;
-    private CallbackSubscriber livelinessSubscriber;
+    private EmbeddedRouter embeddedRouter;
+    private Subscriber livelinessSubscriber;
+    private Thread livelinessPollThread;
+    private Long heartbeatTimerId;
+    private final AtomicBoolean livelinessRunning = new AtomicBoolean(false);
 
     // EventBus components
     private ZenohMessageCodec messageCodec;
@@ -80,23 +76,33 @@ public class ZenohClusterManager implements ClusterManager {
 
     @Override
     public <K, V> void getAsyncMap(String name, Completable<AsyncMap<K, V>> completable) {
-        completable.succeed(new ZenohAsyncMap<>(name, keyPrefix, zenohSession));
+        completable.succeed(new ZenohAsyncMap<>(name, keyPrefix, zenohSession, vertx));
     }
 
     @Override
     public <K, V> Map<K, V> getSyncMap(String name) {
-        ZenohAsyncMap<K, V> asyncMap = new ZenohAsyncMap<>(name, keyPrefix, zenohSession);
+        ZenohAsyncMap<K, V> asyncMap = new ZenohAsyncMap<>(name, keyPrefix, zenohSession, vertx);
         return asyncMap.entries().await();
     }
 
     @Override
     public void getLockWithTimeout(String name, long timeout, Completable<Lock> completable) {
-        completable.succeed(new ZenohLock(name, nodeId, keyPrefix, zenohSession));
+        vertx.<ZenohLock>executeBlocking(() ->
+                ZenohLock.tryAcquireWithTimeout(name, nodeId, keyPrefix, zenohSession, timeout)
+        ).onComplete(ar -> {
+            if (ar.failed()) {
+                completable.fail(ar.cause());
+            } else if (ar.result().isHeld()) {
+                completable.succeed(ar.result());
+            } else {
+                completable.fail("Failed to acquire lock '" + name + "' within " + timeout + "ms");
+            }
+        });
     }
 
     @Override
     public void getCounter(String name, Completable<Counter> completable) {
-        completable.succeed(new ZenohCounter(name, keyPrefix, zenohSession));
+        completable.succeed(new ZenohCounter(name, keyPrefix, zenohSession, vertx));
     }
 
     @Override
@@ -125,13 +131,10 @@ public class ZenohClusterManager implements ClusterManager {
         nodeInfoMap.put(nodeId, nodeInfo);
         String key = keyPrefix.nodeInfoKey(nodeId);
         logger.debug("Publishing node info to key: {}", key);
-        // Publish node info to Zenoh for other nodes to discover
         if (zenohSession != null) {
             try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                zenohSession.put(keyExpr, nodeInfo.toString());
-                keyExpr.close();
-            } catch (ZError e) {
+                zenohSession.put(key, nodeInfo.toString().getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
                 logger.warn("Failed to publish node info to Zenoh", e);
             }
         }
@@ -160,7 +163,7 @@ public class ZenohClusterManager implements ClusterManager {
 
         try {
             openZenohSession();
-            declareLivelinessToken();
+            startLivelinessHeartbeat();
             subscribeLivelinessChanges();
 
             // Discover nodes that were already alive before we subscribed
@@ -171,7 +174,7 @@ public class ZenohClusterManager implements ClusterManager {
 
             knownNodes.add(nodeId);
             active = true;
-            logger.info("Successfully joined Zenoh cluster");
+            logger.info("Successfully joined Zenoh cluster, zid={}", zenohSession.zid());
             completable.succeed();
         } catch (Exception e) {
             logger.error("Failed to join Zenoh cluster", e);
@@ -183,9 +186,8 @@ public class ZenohClusterManager implements ClusterManager {
     public void leave(Completable<Void> completable) {
         logger.info("Leaving Zenoh cluster, nodeId={}", nodeId);
         try {
-            // Cleanup EventBus components
             cleanupEventBusComponents();
-
+            stopLivelinessHeartbeat();
             closeZenohSession();
             knownNodes.remove(nodeId);
             active = false;
@@ -206,13 +208,10 @@ public class ZenohClusterManager implements ClusterManager {
         logger.debug("Adding registration for address={}, nodeId={}", address, registrationInfo.nodeId());
         registrations.computeIfAbsent(address, k -> new CopyOnWriteArrayList<>()).add(registrationInfo);
         String key = keyPrefix.registrationKey(address, registrationInfo.nodeId());
-        // Publish registration to Zenoh
         if (zenohSession != null) {
             try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                zenohSession.put(keyExpr, address);
-                keyExpr.close();
-            } catch (ZError e) {
+                zenohSession.put(key, address.getBytes(StandardCharsets.UTF_8));
+            } catch (Exception e) {
                 logger.warn("Failed to publish registration to Zenoh", e);
             }
         }
@@ -227,13 +226,10 @@ public class ZenohClusterManager implements ClusterManager {
             regs.remove(registrationInfo);
         }
         String key = keyPrefix.registrationKey(address, registrationInfo.nodeId());
-        // Delete registration from Zenoh
         if (zenohSession != null) {
             try {
-                KeyExpr keyExpr = KeyExpr.tryFrom(key);
-                zenohSession.delete(keyExpr);
-                keyExpr.close();
-            } catch (ZError e) {
+                zenohSession.delete(key);
+            } catch (Exception e) {
                 logger.warn("Failed to delete registration from Zenoh", e);
             }
         }
@@ -259,294 +255,296 @@ public class ZenohClusterManager implements ClusterManager {
 
     // --- Private Zenoh interaction methods ---
 
-    private void openZenohSession() throws ZError {
+    private void openZenohSession() {
         logger.info("Opening Zenoh session with mode={}, connect={}, listen={}",
                 properties.getMode(), properties.getConnect(), properties.getListen());
 
-        // Initialize Zenoh logging from RUST_LOG environment variable
-        Zenoh.tryInitLogFromEnv();
+        String backend = properties.getBackend();
+        boolean useEmbeddedRouter = "router".equalsIgnoreCase(properties.getMode())
+                && backend != null && !backend.isEmpty() && !"none".equalsIgnoreCase(backend);
 
+        if (useEmbeddedRouter) {
+            // Use EmbeddedRouter to load storage plugins, then connect a Session to it
+            openWithEmbeddedRouter(backend);
+        } else {
+            // Regular session without storage plugins
+            openRegularSession();
+        }
+    }
 
+    /**
+     * Start an EmbeddedRouter with storage backend plugin and connect a Session to it.
+     * <p>
+     * Uses {@link Config#fromJson5(String)} to parse the full JSON5 config (including plugins),
+     * then {@link Config#ensureDefaultPluginsSearchDirs()} to ensure {@code ~/.zenoh/lib}
+     * is in the search path. Additional custom dirs from {@code plugin-dir} property are appended.
+     */
+    private void openWithEmbeddedRouter(String backend) {
+        logger.info("Starting EmbeddedRouter with '{}' storage backend", backend);
+
+        // Build listen endpoints JSON array
+        List<String> listenEndpoints = properties.getListen();
+        String listenJson;
+        if (listenEndpoints != null && !listenEndpoints.isEmpty()) {
+            listenJson = listenEndpoints.stream()
+                    .map(e -> "\"" + e + "\"")
+                    .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+        } else {
+            listenJson = "[\"tcp/[::]:7447\"]";
+        }
+
+        // Resolve storage dir — zenoh filesystem backend requires a RELATIVE path
+        // (relative to the working directory where the JVM was started)
+        String storageDir = properties.getStorageDir();
+        java.io.File storageDirFile = new java.io.File(storageDir);
+        if (storageDirFile.isAbsolute()) {
+            // Convert absolute path to relative (best-effort: strip user.dir prefix)
+            String userDir = System.getProperty("user.dir");
+            if (storageDir.startsWith(userDir)) {
+                storageDir = storageDir.substring(userDir.length());
+                if (storageDir.startsWith(java.io.File.separator)) {
+                    storageDir = storageDir.substring(1);
+                }
+            }
+            // If we can't make it relative, keep as-is and let zenoh report the error
+        }
+        String absStorageDir = new java.io.File(storageDir).getAbsolutePath();
+
+        // Build storage key expression and names  只拦截 /cluster/**
+        String storageKeyExpr = keyPrefix.getPrefix() + "/**";
+        String volumeName = backend.toLowerCase();
+        String storageName = "vertx_" + volumeName;
+
+        // Build volume config based on backend type
+        String volumeConfig;
+        switch (volumeName) {
+            case "filesystem", "fs" ->
+                    // zenoh filesystem backend requires explicit backend + relative dir
+                    volumeConfig = "{ id: \"" + volumeName + "\", dir: \"" + storageDir + "\" }";
+            case "rocksdb" ->
+                    volumeConfig = "{ id: \"" + volumeName + "\", dir: \"" + storageDir + "\" }";
+            default ->
+                    volumeConfig = "\"" + volumeName + "\"";
+        }
+
+        // Build full JSON5 config with plugin configuration
+        String json5Config = "{\n"
+                + "  mode: \"router\",\n"
+                + "  plugins_loading: { enabled: true },\n"
+                + "  plugins: {\n"
+                + "    storage_manager: {\n"
+                + "      volumes: { " + volumeName + ": {} },\n"
+                + "      storages: {\n"
+                + "        " + storageName + ": {\n"
+                + "          key_expr: \"" + storageKeyExpr + "\",\n"
+                + "          volume: " + volumeConfig + "\n"
+                + "        }\n"
+                + "      }\n"
+                + "    }\n"
+                + "  }\n"
+                + "}";
+
+        logger.info("Storage dir: {} (resolved: ~/.zenoh/zenoh_backend_fs/{})", absStorageDir, storageDir);
+        logger.info("EmbeddedRouter JSON5 config:\n{}", json5Config);
+
+        // Parse JSON5 into Config object (preserves plugin fields)
+        Config routerConfig = Config.fromJson5(json5Config);
+
+        // Ensure ~/.zenoh/lib is in plugin search dirs
+        routerConfig.ensureDefaultPluginsSearchDirs();
+
+        // Add custom plugin directories if configured
+        List<String> customPluginDirs = properties.getPluginDir();
+        if (customPluginDirs != null) {
+            for (String dir : customPluginDirs) {
+                if (dir != null && !dir.isEmpty()) {
+                    routerConfig.addPluginsSearchDir(dir);
+                    logger.info("Added custom plugin search dir: {}", dir);
+                }
+            }
+        }
+
+        // Start the embedded router with Config (loads plugins from search dirs)
+        this.embeddedRouter = new EmbeddedRouter(routerConfig);
+        logger.info("EmbeddedRouter started with storage backend, zid={}", embeddedRouter.zid());
+
+        // Create a client session that connects to the local router
+        Config clientConfig = Config.defaultConfig();
+        clientConfig.setMode("client");
+        clientConfig.setConnectEndpoints(listenEndpoints != null && !listenEndpoints.isEmpty()
+                ? listenEndpoints : List.of());
+
+        this.zenohSession = new Session(clientConfig);
+        clientConfig.close();
+        logger.info("Client session connected to EmbeddedRouter (with storage) successfully");
+    }
+
+    /**
+     * Open a regular Session without EmbeddedRouter (no storage plugin loading).
+     */
+    private void openRegularSession() {
         Config config;
         if (properties.getConfigFile() != null && !properties.getConfigFile().isEmpty()) {
-            config = Config.fromFile(new File(properties.getConfigFile()));
+            config = new Config(properties.getConfigFile());
         } else {
-            config = Config.loadDefault();
+            config = Config.defaultConfig();
         }
 
         // Set mode
         String mode = properties.getMode();
         if (mode != null && !mode.isEmpty()) {
-            config.insertJson5("mode", "\"" + mode + "\"");
+            config.setMode(mode);
         }
 
         // Set connect endpoints
         List<String> connectEndpoints = properties.getConnect();
         if (connectEndpoints != null && !connectEndpoints.isEmpty()) {
-            String endpointsJson = toJsonArray(connectEndpoints);
-            config.insertJson5("connect/endpoints", endpointsJson);
+            config.setConnectEndpoints(connectEndpoints);
         }
 
         // Set listen endpoints
         List<String> listenEndpoints = properties.getListen();
         if (listenEndpoints != null && !listenEndpoints.isEmpty()) {
-            String endpointsJson = toJsonArray(listenEndpoints);
-            config.insertJson5("listen/endpoints", endpointsJson);
+            config.setListenEndpoints(listenEndpoints);
         }
 
-
-
-        // Apply backend storage configuration (skip for in-memory mode)
-        String backend = properties.getBackend();
-        if (backend != null && !backend.isEmpty() && !"none".equalsIgnoreCase(backend)) {
-            applyBackendConfig(config);
-        }
-
-        logger.info("config:{}",config.getJson("plugins"));
-
-        this.zenohSession = Zenoh.open(config);
+        this.zenohSession = new Session(config);
+        config.close();
         logger.info("Zenoh session opened successfully");
     }
 
-    private static final String SM_PREFIX = "plugins/storage_manager";
-    private static final String CLASSPATH_PREFIX = "classpath:";
-
     /**
-     * Apply backend storage plugin configuration.
-     * Supports filesystem, rocksdb, and s3 backends with configurable plugin loading.
+     * Start a heartbeat that periodically puts this node's liveliness key.
+     * Uses vertx.setPeriodic() with executeBlocking() to avoid blocking the event loop.
      */
-    private void applyBackendConfig(Config config) throws ZError {
-        String backend = properties.getBackend();
-        String pluginLibName = resolvePluginLibName(backend);
-        String pluginDir = resolvePluginDir(pluginLibName);
-        String storageKeyExpr = keyPrefix.getRoot() + "/**";
-        String volumeName = backend;
-        String storageName = "vertx_" + backend;
-
-        logger.info("Configuring backend: type={}, pluginDir={}, key_expr={}", backend, pluginDir, storageKeyExpr);
-
-        // 开启插件加载
-        config.insertJson5("plugins_loading/enabled","true");
-
-        // __path__ must point to the DIRECTORY containing the plugin library
-        // Zenoh will automatically search for matching .so/.dylib/.dll in this directory
-        config.insertJson5(SM_PREFIX + "/volumes/" + volumeName + "/__path__", "[\"" + pluginDir + "\"]");
-
-        // Configure storage: key_expr
-        config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/key_expr", "\"" + storageKeyExpr + "\"");
-
-        // Backend-specific storage properties: volume must be an object with {id, ...volume_cfg}
-        switch (backend.toLowerCase()) {
-            case "filesystem", "fs" -> {
-                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume",
-                        "{\"id\": \"" + volumeName + "\", \"dir\": \"" + properties.getStorageDir() + "\"}");
-                logger.info("Filesystem backend: storage dir={}", properties.getStorageDir());
-            }
-            case "rocksdb" -> {
-                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume",
-                        "{\"id\": \"" + volumeName + "\", \"dir\": \"" + properties.getStorageDir() + "\"}");
-                logger.info("RocksDB backend: storage dir={}", properties.getStorageDir());
-            }
-            case "s3" -> {
-                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume", "\"" + volumeName + "\"");
-                logger.info("S3 backend configured (bucket/endpoint via plugin extra config)");
-            }
-            default -> {
-                config.insertJson5(SM_PREFIX + "/storages/" + storageName + "/volume", "\"" + volumeName + "\"");
-                logger.warn("Unknown backend type: {}, applying generic config", backend);
-            }
-        }
-
-        logger.info("Backend '{}' configured successfully, pluginDir={}", backend, pluginDir);
-    }
-
-    /**
-     * Resolve the plugin library name based on backend type and OS.
-     */
-    private String resolvePluginLibName(String backend) {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        String ext;
-        if (os.contains("mac") || os.contains("darwin")) {
-            ext = ".dylib";
-        } else if (os.contains("win")) {
-            ext = ".dll";
-        } else {
-            ext = ".so";
-        }
-
-        String libPrefix = switch (backend.toLowerCase()) {
-            case "filesystem", "fs" -> "libzenoh_backend_fs";
-            default -> "libzenoh_backend_" + backend;
-        };
-
-        return libPrefix + ext;
-    }
-
-    /**
-     * Resolve the directory containing the plugin library.
-     * Supports classpath: prefix for loading from classpath resources,
-     * or filesystem directory path.
-     * Zenoh's __path__ expects the directory containing the plugin, not the file itself.
-     */
-    private String resolvePluginDir(String pluginLibName) {
-        String pluginDir = properties.getPluginDir();
-
-        // Classpath loading: extract resource to temp dir, return temp dir path
-        if (pluginDir.startsWith(CLASSPATH_PREFIX)) {
-            String classpathDir = pluginDir.substring(CLASSPATH_PREFIX.length());
-            return extractFromClasspath(classpathDir, pluginLibName);
-        }
-
-        // Filesystem directory: verify plugin exists in the directory
-        File dir = new File(pluginDir);
-        File pluginFile = new File(dir, pluginLibName);
-        if (pluginFile.exists()) {
-            return toCanonicalPath(dir);
-        }
-
-        // Fallback: try current directory
-        File fallback = new File(pluginLibName);
-        if (fallback.exists()) {
-            return fallback.getParentFile() != null ? toCanonicalPath(fallback.getParentFile()) : ".";
-        }
-
-        logger.warn("Plugin file not found: {} in dir: {}", pluginLibName, pluginDir);
-        return toCanonicalPath(dir);
-    }
-
-    private static String toCanonicalPath(File file) {
-        try {
-            return file.getCanonicalPath();
-        } catch (IOException e) {
-            return file.getAbsolutePath();
-        }
-    }
-
-    /**
-     * Extract a plugin library from classpath to a temporary directory.
-     */
-    private String extractFromClasspath(String classpathDir, String pluginLibName) {
-        String resourcePath = classpathDir.isEmpty() ? pluginLibName : classpathDir + "/" + pluginLibName;
-        // Normalize path
-        if (resourcePath.startsWith("/")) {
-            resourcePath = resourcePath.substring(1);
-        }
-
-        try (InputStream is = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
-            if (is == null) {
-                throw new IOException("Plugin resource not found on classpath: " + resourcePath);
-            }
-
-            Path tempDir = Files.createTempDirectory("zenoh-plugin-");
-            Path tempFile = tempDir.resolve(pluginLibName);
-            Files.copy(is, tempFile, StandardCopyOption.REPLACE_EXISTING);
-            tempFile.toFile().setExecutable(true);
-            tempFile.toFile().deleteOnExit();
-            tempDir.toFile().deleteOnExit();
-
-            logger.info("Extracted plugin from classpath '{}' to '{}'", resourcePath, tempFile);
-            return tempDir.toAbsolutePath().toString();
-        } catch (IOException e) {
-            logger.error("Failed to extract plugin from classpath: {}", resourcePath, e);
-            throw new RuntimeException("Failed to load Zenoh backend plugin from classpath: " + resourcePath, e);
-        }
-    }
-
-    private void declareLivelinessToken() throws ZError {
+    private void startLivelinessHeartbeat() {
         String key = keyPrefix.nodeKey(nodeId);
-        logger.debug("Declaring liveliness token at key: {}", key);
-        KeyExpr keyExpr = KeyExpr.tryFrom(key);
-        this.livelinessToken = zenohSession.liveliness().declareToken(keyExpr);
-        logger.info("Liveliness token declared at: {}", key);
+        byte[] nodeIdBytes = nodeId.getBytes(StandardCharsets.UTF_8);
+        logger.debug("Starting liveliness heartbeat at key: {}", key);
+
+        // Initial put (on calling thread, which is a Vert.x worker thread during join)
+        try {
+            zenohSession.put(key, nodeIdBytes);
+        } catch (Exception e) {
+            logger.warn("Failed initial liveliness put", e);
+        }
+
+        livelinessRunning.set(true);
+        // Refresh heartbeat every 5 seconds via Vert.x timer, offloaded to worker thread
+        heartbeatTimerId = vertx.setPeriodic(5000, id -> {
+            if (!livelinessRunning.get()) return;
+            vertx.<Void>executeBlocking(() -> {
+                try {
+                    zenohSession.put(key, nodeIdBytes);
+                } catch (Exception e) {
+                    logger.debug("Heartbeat put failed: {}", e.getMessage());
+                }
+                return null;
+            });
+        });
+
+        logger.info("Liveliness heartbeat started for node: {}", nodeId);
     }
 
-    private void subscribeLivelinessChanges() throws ZError {
+    private void stopLivelinessHeartbeat() {
+        livelinessRunning.set(false);
+        if (heartbeatTimerId != null) {
+            vertx.cancelTimer(heartbeatTimerId);
+            heartbeatTimerId = null;
+        }
+        // Delete liveliness key
+        if (zenohSession != null) {
+            try {
+                zenohSession.delete(keyPrefix.nodeKey(nodeId));
+            } catch (Exception e) {
+                logger.debug("Failed to delete liveliness key on leave");
+            }
+        }
+    }
+
+    private void subscribeLivelinessChanges() {
         String pattern = keyPrefix.allNodesPattern();
         logger.debug("Subscribing to liveliness changes at pattern: {}", pattern);
-        KeyExpr keyExpr = KeyExpr.tryFrom(pattern);
 
-        this.livelinessSubscriber = zenohSession.liveliness().declareSubscriber(keyExpr, (Sample sample) -> {
-            String detectedNodeId = extractNodeId(sample.getKeyExpr().toString());
-            if (detectedNodeId.equals(nodeId)) {
-                return;
-            }
+        this.livelinessSubscriber = new Subscriber(zenohSession, pattern);
 
-            if (sample.getKind() == SampleKind.PUT) {
-                if (!knownNodes.contains(detectedNodeId)) {
-                    knownNodes.add(detectedNodeId);
-                    logger.info("Node joined: {}", detectedNodeId);
-                    if (nodeListener != null) {
-                        nodeListener.nodeAdded(detectedNodeId);
+        // Start polling thread for liveliness changes
+        Thread pollThread = new Thread(() -> {
+            while (livelinessRunning.get() && livelinessSubscriber != null && !livelinessSubscriber.isUndeclared()) {
+                try {
+                    Optional<com.workoss.zenoh.Sample> sampleOpt = livelinessSubscriber.tryRecv();
+                    if (sampleOpt.isPresent()) {
+                        com.workoss.zenoh.Sample sample = sampleOpt.get();
+                        String detectedNodeId = extractNodeId(sample.keyExpr());
+                        if (detectedNodeId.equals(nodeId)) continue;
+
+                        // kind: 0=PUT, 1=DELETE (from zenoh SampleKind)
+                        if (sample.kind() == 0) { // PUT
+                            if (!knownNodes.contains(detectedNodeId)) {
+                                knownNodes.add(detectedNodeId);
+                                logger.info("Node joined: {}", detectedNodeId);
+                                if (nodeListener != null) {
+                                    nodeListener.nodeAdded(detectedNodeId);
+                                }
+                            }
+                        } else if (sample.kind() == 1) { // DELETE
+                            if (knownNodes.remove(detectedNodeId)) {
+                                logger.info("Node left: {}", detectedNodeId);
+                                if (nodeListener != null) {
+                                    nodeListener.nodeLeft(detectedNodeId);
+                                }
+                                registrations.values().forEach(regs ->
+                                        regs.removeIf(reg -> detectedNodeId.equals(reg.nodeId()))
+                                );
+                                nodeInfoMap.remove(detectedNodeId);
+                            }
+                        }
+                    } else {
+                        Thread.sleep(100); // No data available, sleep briefly
                     }
-                }
-            } else if (sample.getKind() == SampleKind.DELETE) {
-                if (knownNodes.remove(detectedNodeId)) {
-                    logger.info("Node left: {}", detectedNodeId);
-                    if (nodeListener != null) {
-                        nodeListener.nodeLeft(detectedNodeId);
-                    }
-                    // Clean up registrations for the departed node
-                    registrations.values().forEach(regs ->
-                            regs.removeIf(reg -> detectedNodeId.equals(reg.nodeId()))
-                    );
-                    nodeInfoMap.remove(detectedNodeId);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    logger.debug("Liveliness poll error: {}", e.getMessage());
+                    try { Thread.sleep(500); } catch (InterruptedException ie) { break; }
                 }
             }
-        });
-        logger.info("Liveliness subscriber declared for pattern: {}", pattern);
+        }, "zenoh-liveliness-poll-" + nodeId.substring(0, 8));
+        pollThread.setDaemon(true);
+        pollThread.start();
+        this.livelinessPollThread = pollThread;
+
+        logger.info("Liveliness subscriber started for pattern: {}", pattern);
     }
 
     /**
-     * Discover nodes that were already alive before this node subscribed to liveliness.
-     * Zenoh liveliness subscriber only receives events that occur AFTER subscription,
-     * so we must actively query for existing tokens.
+     * Discover nodes that were already alive before this node subscribed.
      */
     private void discoverExistingNodes() {
         try {
             String pattern = keyPrefix.allNodesPattern();
             logger.debug("Discovering existing nodes with pattern: {}", pattern);
-            KeyExpr keyExpr = KeyExpr.tryFrom(pattern);
 
-            java.util.concurrent.BlockingQueue<java.util.Optional<io.zenoh.query.Reply>> replies =
-                    zenohSession.liveliness().get(keyExpr);
-
+            List<Reply> replies = zenohSession.get(pattern);
             int discoveredCount = 0;
-            // Poll replies with timeout to avoid blocking forever
-            while (true) {
-                java.util.Optional<io.zenoh.query.Reply> replyOpt =
-                        replies.poll(2, TimeUnit.SECONDS);
-                if (replyOpt == null || !replyOpt.isPresent()) {
-                    break;
-                }
 
-                io.zenoh.query.Reply reply = replyOpt.get();
-                try {
-                    // Reply.Success has getSample() method
-                    java.lang.reflect.Method getSampleMethod = reply.getClass().getMethod("getSample");
-                    Object sample = getSampleMethod.invoke(reply);
-                    if (sample != null) {
-                        java.lang.reflect.Method getKeyExprMethod = sample.getClass().getMethod("getKeyExpr");
-                        Object sampleKeyExpr = getKeyExprMethod.invoke(sample);
-                        String detectedNodeId = extractNodeId(sampleKeyExpr.toString());
-
-                        if (!detectedNodeId.equals(nodeId) && !knownNodes.contains(detectedNodeId)) {
-                            knownNodes.add(detectedNodeId);
-                            logger.info("Discovered existing node: {}", detectedNodeId);
-                            if (nodeListener != null) {
-                                nodeListener.nodeAdded(detectedNodeId);
-                            }
-                            discoveredCount++;
+            for (Reply reply : replies) {
+                if (reply.success() && reply.sampleKeyExpr().isPresent()) {
+                    String detectedNodeId = extractNodeId(reply.sampleKeyExpr().get());
+                    if (!detectedNodeId.equals(nodeId) && !knownNodes.contains(detectedNodeId)) {
+                        knownNodes.add(detectedNodeId);
+                        logger.info("Discovered existing node: {}", detectedNodeId);
+                        if (nodeListener != null) {
+                            nodeListener.nodeAdded(detectedNodeId);
                         }
+                        discoveredCount++;
                     }
-                } catch (NoSuchMethodException e) {
-                    // Reply.Error or other non-success reply, skip
-                    logger.debug("Skipping non-success reply during node discovery");
                 }
             }
 
-            keyExpr.close();
             if (discoveredCount > 0) {
-                logger.info("Discovered {} existing node(s) via liveliness get", discoveredCount);
+                logger.info("Discovered {} existing node(s)", discoveredCount);
             }
         } catch (Exception e) {
             logger.warn("Failed to discover existing nodes", e);
@@ -556,32 +554,36 @@ public class ZenohClusterManager implements ClusterManager {
     private void closeZenohSession() {
         logger.info("Closing Zenoh session");
         if (livelinessSubscriber != null) {
-            livelinessSubscriber.undeclare();
+            try {
+                livelinessSubscriber.undeclare();
+            } catch (Exception e) {
+                logger.debug("Failed to undeclare liveliness subscriber");
+            }
             livelinessSubscriber = null;
         }
-        if (livelinessToken != null) {
-            livelinessToken.close();
-            livelinessToken = null;
+        // Wait for liveliness poll thread to exit
+        if (livelinessPollThread != null) {
+            livelinessPollThread.interrupt();
+            try { livelinessPollThread.join(2000); } catch (InterruptedException ignored) {}
+            livelinessPollThread = null;
         }
         if (zenohSession != null) {
             zenohSession.close();
             zenohSession = null;
+        }
+        if (embeddedRouter != null) {
+            try {
+                embeddedRouter.close();
+            } catch (Exception e) {
+                logger.debug("Failed to close EmbeddedRouter", e);
+            }
+            embeddedRouter = null;
         }
     }
 
     private String extractNodeId(String keyExpr) {
         int lastSlash = keyExpr.lastIndexOf('/');
         return lastSlash >= 0 ? keyExpr.substring(lastSlash + 1) : keyExpr;
-    }
-
-    private static String toJsonArray(List<String> items) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < items.size(); i++) {
-            if (i > 0) sb.append(",");
-            sb.append("\"").append(items.get(i)).append("\"");
-        }
-        sb.append("]");
-        return sb.toString();
     }
 
     // --- EventBus component management ---
@@ -622,23 +624,14 @@ public class ZenohClusterManager implements ClusterManager {
         logger.info("EventBus components cleaned up");
     }
 
-    /**
-     * Get the EventBus publisher (for testing).
-     */
     public ZenohEventBusPublisher getEventBusPublisher() {
         return eventBusPublisher;
     }
 
-    /**
-     * Get the EventBus sender (for testing).
-     */
     public ZenohEventBusSender getEventBusSender() {
         return eventBusSender;
     }
 
-    /**
-     * Get the EventBus subscriber (for bridge integration).
-     */
     public ZenohEventBusSubscriber getEventBusSubscriber() {
         return eventBusSubscriber;
     }
