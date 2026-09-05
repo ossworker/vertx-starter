@@ -2,6 +2,8 @@ package com.workoss.boot.vertx.cluster.zenoh;
 
 import com.workoss.zenoh.Config;
 import com.workoss.zenoh.EmbeddedRouter;
+import com.workoss.zenoh.Query;
+import com.workoss.zenoh.Queryable;
 import com.workoss.zenoh.Reply;
 import com.workoss.zenoh.Session;
 import com.workoss.zenoh.Subscriber;
@@ -26,7 +28,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Vert.x 5 ClusterManager implementation backed by Zenoh JNI.
  * Supports multi-tenant isolation through key prefix strategy.
- * Uses zenoh-jni native bindings with storage plugin support via EmbeddedRouter-compatible Config.
+ * <p>
+ * Cluster state (shared maps, locks, counters, node liveness) is replicated in process by
+ * {@link ZenohMapStore} and served to peers over a Zenoh queryable, so no storage-manager plugin is
+ * loaded and no plugin ABI has to match the JNI runtime.
  *
  * Key prefix scheme: vertx/{app-name}/{environment}/cluster/...
  * Different apps/environments sharing the same Zenoh network are completely isolated.
@@ -48,8 +53,14 @@ public class ZenohClusterManager implements ClusterManager {
     private EmbeddedRouter embeddedRouter;
     private Subscriber livelinessSubscriber;
     private Thread livelinessPollThread;
+    private Queryable nodesQueryable;
+    private Thread nodesQueryPollThread;
+    private final AtomicBoolean nodesQueryableRunning = new AtomicBoolean(false);
     private Long heartbeatTimerId;
     private final AtomicBoolean livelinessRunning = new AtomicBoolean(false);
+
+    // Replicated in-process store backing shared maps, locks and counters
+    private ZenohMapStore mapStore;
 
     // EventBus components
     private ZenohMessageCodec messageCodec;
@@ -72,23 +83,24 @@ public class ZenohClusterManager implements ClusterManager {
     @Override
     public void init(Vertx vertx) {
         this.vertx = vertx;
+        this.mapStore = new ZenohMapStore(vertx, keyPrefix, nodeId);
     }
 
     @Override
     public <K, V> void getAsyncMap(String name, Completable<AsyncMap<K, V>> completable) {
-        completable.succeed(new ZenohAsyncMap<>(name, keyPrefix, zenohSession, vertx));
+        completable.succeed(new ZenohAsyncMap<>(name, keyPrefix, mapStore));
     }
 
     @Override
     public <K, V> Map<K, V> getSyncMap(String name) {
-        ZenohAsyncMap<K, V> asyncMap = new ZenohAsyncMap<>(name, keyPrefix, zenohSession, vertx);
+        ZenohAsyncMap<K, V> asyncMap = new ZenohAsyncMap<>(name, keyPrefix, mapStore);
         return asyncMap.entries().await();
     }
 
     @Override
     public void getLockWithTimeout(String name, long timeout, Completable<Lock> completable) {
         vertx.<ZenohLock>executeBlocking(() ->
-                ZenohLock.tryAcquireWithTimeout(name, nodeId, keyPrefix, zenohSession, timeout)
+                ZenohLock.tryAcquireWithTimeout(name, nodeId, keyPrefix, mapStore, timeout)
         ).onComplete(ar -> {
             if (ar.failed()) {
                 completable.fail(ar.cause());
@@ -102,7 +114,7 @@ public class ZenohClusterManager implements ClusterManager {
 
     @Override
     public void getCounter(String name, Completable<Counter> completable) {
-        completable.succeed(new ZenohCounter(name, keyPrefix, zenohSession, vertx));
+        completable.succeed(new ZenohCounter(name, keyPrefix, mapStore));
     }
 
     @Override
@@ -163,6 +175,11 @@ public class ZenohClusterManager implements ClusterManager {
 
         try {
             openZenohSession();
+            mapStore.start(zenohSession);
+
+            // Declared before the heartbeat so a peer joining concurrently can discover us by
+            // querying, not only by waiting for our next periodic put.
+            startNodeQueryable();
             startLivelinessHeartbeat();
             subscribeLivelinessChanges();
 
@@ -187,6 +204,8 @@ public class ZenohClusterManager implements ClusterManager {
         logger.info("Leaving Zenoh cluster, nodeId={}", nodeId);
         try {
             cleanupEventBusComponents();
+            mapStore.stop();
+            stopNodeQueryable();
             stopLivelinessHeartbeat();
             closeZenohSession();
             knownNodes.remove(nodeId);
@@ -259,128 +278,43 @@ public class ZenohClusterManager implements ClusterManager {
         logger.info("Opening Zenoh session with mode={}, connect={}, listen={}",
                 properties.getMode(), properties.getConnect(), properties.getListen());
 
-        String backend = properties.getBackend();
-        boolean useEmbeddedRouter = "router".equalsIgnoreCase(properties.getMode())
-                && backend != null && !backend.isEmpty() && !"none".equalsIgnoreCase(backend);
-
-        if (useEmbeddedRouter) {
-            // Use EmbeddedRouter to load storage plugins, then connect a Session to it
-            openWithEmbeddedRouter(backend);
+        if ("router".equalsIgnoreCase(properties.getMode())) {
+            openRouterSession();
         } else {
-            // Regular session without storage plugins
             openRegularSession();
         }
     }
 
     /**
-     * Start an EmbeddedRouter with storage backend plugin and connect a Session to it.
+     * Start an EmbeddedRouter and connect a client Session to it.
      * <p>
-     * Uses {@link Config#fromJson5(String)} to parse the full JSON5 config (including plugins),
-     * then {@link Config#ensureDefaultPluginsSearchDirs()} to ensure {@code ~/.zenoh/lib}
-     * is in the search path. Additional custom dirs from {@code plugin-dir} property are appended.
+     * The router carries no plugins: cluster state is replicated in process by {@link ZenohMapStore}
+     * and exchanged over plain pub/sub and queryables, both of which the router forwards.
      */
-    private void openWithEmbeddedRouter(String backend) {
-        logger.info("Starting EmbeddedRouter with '{}' storage backend", backend);
-
-        // Build listen endpoints JSON array
+    private void openRouterSession() {
         List<String> listenEndpoints = properties.getListen();
-        String listenJson;
-        if (listenEndpoints != null && !listenEndpoints.isEmpty()) {
-            listenJson = listenEndpoints.stream()
-                    .map(e -> "\"" + e + "\"")
-                    .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
-        } else {
-            listenJson = "[\"tcp/[::]:7447\"]";
+        if (listenEndpoints == null || listenEndpoints.isEmpty()) {
+            listenEndpoints = List.of("tcp/[::]:7447");
         }
 
-        // Resolve storage dir — zenoh filesystem backend requires a RELATIVE path
-        // (relative to the working directory where the JVM was started)
-        String storageDir = properties.getStorageDir();
-        java.io.File storageDirFile = new java.io.File(storageDir);
-        if (storageDirFile.isAbsolute()) {
-            // Convert absolute path to relative (best-effort: strip user.dir prefix)
-            String userDir = System.getProperty("user.dir");
-            if (storageDir.startsWith(userDir)) {
-                storageDir = storageDir.substring(userDir.length());
-                if (storageDir.startsWith(java.io.File.separator)) {
-                    storageDir = storageDir.substring(1);
-                }
-            }
-            // If we can't make it relative, keep as-is and let zenoh report the error
-        }
-        String absStorageDir = new java.io.File(storageDir).getAbsolutePath();
+        Config routerConfig = Config.defaultConfig();
+        routerConfig.setMode("router");
+        routerConfig.setListenEndpoints(listenEndpoints);
 
-        // Build storage key expression and names  只拦截 /cluster/**
-        String storageKeyExpr = keyPrefix.getPrefix() + "/**";
-        String volumeName = backend.toLowerCase();
-        String storageName = "vertx_" + volumeName;
-
-        // Build volume config based on backend type
-        String volumeConfig;
-        switch (volumeName) {
-            case "filesystem", "fs" ->
-                    // zenoh filesystem backend requires explicit backend + relative dir
-                    volumeConfig = "{ id: \"" + volumeName + "\", dir: \"" + storageDir + "\" }";
-            case "rocksdb" ->
-                    volumeConfig = "{ id: \"" + volumeName + "\", dir: \"" + storageDir + "\" }";
-            default ->
-                    volumeConfig = "\"" + volumeName + "\"";
-        }
-
-        // Build full JSON5 config with plugin configuration
-        String json5Config = "{\n"
-                + "  mode: \"router\",\n"
-                + "  plugins_loading: { enabled: true },\n"
-                + "  plugins: {\n"
-                + "    storage_manager: {\n"
-                + "      volumes: { " + volumeName + ": {} },\n"
-                + "      storages: {\n"
-                + "        " + storageName + ": {\n"
-                + "          key_expr: \"" + storageKeyExpr + "\",\n"
-                + "          volume: " + volumeConfig + "\n"
-                + "        }\n"
-                + "      }\n"
-                + "    }\n"
-                + "  }\n"
-                + "}";
-
-        logger.info("Storage dir: {} (resolved: ~/.zenoh/zenoh_backend_fs/{})", absStorageDir, storageDir);
-        logger.info("EmbeddedRouter JSON5 config:\n{}", json5Config);
-
-        // Parse JSON5 into Config object (preserves plugin fields)
-        Config routerConfig = Config.fromJson5(json5Config);
-
-        // Ensure ~/.zenoh/lib is in plugin search dirs
-        routerConfig.ensureDefaultPluginsSearchDirs();
-
-        // Add custom plugin directories if configured
-        List<String> customPluginDirs = properties.getPluginDir();
-        if (customPluginDirs != null) {
-            for (String dir : customPluginDirs) {
-                if (dir != null && !dir.isEmpty()) {
-                    routerConfig.addPluginsSearchDir(dir);
-                    logger.info("Added custom plugin search dir: {}", dir);
-                }
-            }
-        }
-
-        // Start the embedded router with Config (loads plugins from search dirs)
         this.embeddedRouter = new EmbeddedRouter(routerConfig);
-        logger.info("EmbeddedRouter started with storage backend, zid={}", embeddedRouter.zid());
+        logger.info("EmbeddedRouter started, zid={}", embeddedRouter.zid());
 
-        // Create a client session that connects to the local router
         Config clientConfig = Config.defaultConfig();
         clientConfig.setMode("client");
-        clientConfig.setConnectEndpoints(listenEndpoints != null && !listenEndpoints.isEmpty()
-                ? listenEndpoints : List.of());
+        clientConfig.setConnectEndpoints(List.copyOf(listenEndpoints));
 
         this.zenohSession = new Session(clientConfig);
         clientConfig.close();
-        logger.info("Client session connected to EmbeddedRouter (with storage) successfully");
+        logger.info("Client session connected to EmbeddedRouter successfully");
     }
 
     /**
-     * Open a regular Session without EmbeddedRouter (no storage plugin loading).
+     * Open a Session directly, for peer and client modes where no local router is needed.
      */
     private void openRegularSession() {
         Config config;
@@ -519,7 +453,71 @@ public class ZenohClusterManager implements ClusterManager {
     }
 
     /**
+     * Answers {@code session.get()} on the nodes keyspace with this node's own liveliness key.
+     * <p>
+     * Each live node asserts only itself, so the replies a joining node collects are exactly the
+     * set of nodes that were up at query time — the role the storage backend used to play.
+     */
+    private void startNodeQueryable() {
+        String pattern = keyPrefix.allNodesPattern();
+        String ownKey = keyPrefix.nodeKey(nodeId);
+        byte[] ownPayload = nodeId.getBytes(StandardCharsets.UTF_8);
+
+        this.nodesQueryable = new Queryable(zenohSession, pattern);
+        nodesQueryableRunning.set(true);
+
+        Thread pollThread = new Thread(() -> {
+            while (nodesQueryableRunning.get() && nodesQueryable != null && !nodesQueryable.isUndeclared()) {
+                Queryable current = nodesQueryable;
+                if (current == null) {
+                    break;
+                }
+                // try-with-resources matters: dropping the query without replying is what tells the
+                // requesting node that no more replies are coming.
+                try (Query query = new Query(current)) {
+                    String selector = query.getKeyExpr();
+                    if (selector.endsWith("*") || selector.equals(ownKey)) {
+                        query.reply(ownKey, ownPayload);
+                    }
+                } catch (Exception e) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
+                    if (nodesQueryable == null || nodesQueryable.isUndeclared()) {
+                        break;
+                    }
+                    logger.debug("Node queryable poll error: {}", e.getMessage());
+                }
+            }
+        }, "zenoh-nodes-query-" + nodeId.substring(0, 8));
+        pollThread.setDaemon(true);
+        pollThread.start();
+        this.nodesQueryPollThread = pollThread;
+
+        logger.info("Node queryable started for pattern: {}", pattern);
+    }
+
+    private void stopNodeQueryable() {
+        nodesQueryableRunning.set(false);
+        Queryable q = this.nodesQueryable;
+        this.nodesQueryable = null;
+        if (q != null) {
+            try {
+                q.undeclare();
+            } catch (Exception e) {
+                logger.debug("Failed to undeclare node queryable");
+            }
+        }
+        if (nodesQueryPollThread != null) {
+            nodesQueryPollThread.interrupt();
+            try { nodesQueryPollThread.join(2000); } catch (InterruptedException ignored) {}
+            nodesQueryPollThread = null;
+        }
+    }
+
+    /**
      * Discover nodes that were already alive before this node subscribed.
+     * Each peer answers from its own node queryable.
      */
     private void discoverExistingNodes() {
         try {
@@ -568,12 +566,16 @@ public class ZenohClusterManager implements ClusterManager {
             livelinessPollThread = null;
         }
         if (zenohSession != null) {
-            zenohSession.close();
+            try {
+                zenohSession.closeSession();
+            } catch (Exception e) {
+                logger.debug("Failed to close Zenoh session", e);
+            }
             zenohSession = null;
         }
         if (embeddedRouter != null) {
             try {
-                embeddedRouter.close();
+                embeddedRouter.closeRouter();
             } catch (Exception e) {
                 logger.debug("Failed to close EmbeddedRouter", e);
             }

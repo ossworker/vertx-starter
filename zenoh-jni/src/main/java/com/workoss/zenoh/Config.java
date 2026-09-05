@@ -2,10 +2,6 @@ package com.workoss.zenoh;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Zenoh configuration - supports JSON5 format compatible with zenohd.
- * Wraps zenoh::Config to provide FFI-safe access.
- */
 public final class Config implements AutoCloseable {
     private final long handle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -19,11 +15,11 @@ public final class Config implements AutoCloseable {
      * Required by boltffi for opaque type instantiation.
      */
     public Config() {
-        this(Config.createHandle0());
+        this(Config.__boltffiCreateHandle0());
     }
 
-    private static long createHandle0() {
-        return Native.boltffi_config_new();
+    private static long __boltffiCreateHandle0() {
+        return Native.boltffi_init_class_zenoh_ffi_config_config_new();
     }
 
     /**
@@ -31,23 +27,33 @@ public final class Config implements AutoCloseable {
      * Equivalent to zenoh-java: Config.fromFile(path)
      */
     public Config(String path) {
-        this(Config.createHandle2(path));
+        this(Config.__boltffiCreateHandle2(path));
     }
 
-    private static long createHandle2(String path) {
-        long _handle = Native.boltffi_config_from_file(path.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_handle == 0L) throw new RuntimeException("Constructor failed");
-        return _handle;
+    private static long __boltffiCreateHandle2(String path) {
+        WireLease __boltffi_path_wire = WireWriterPool.acquire(WireSizes.string(path));
+        try {
+    WireWriter __boltffi_path_writer = __boltffi_path_wire.writer();
+    __boltffi_path_writer.writeString(path);
+    try {
+        return Native.boltffi_init_class_zenoh_ffi_config_config_from_file(__boltffi_path_wire.directBuffer(), __boltffi_path_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        throw new RuntimeException("Constructor failed");
+    }
+} finally {
+    __boltffi_path_wire.close();
+}
     }
 
     long rawHandle() {
+        if (closed.get()) throw new IllegalStateException("Config is closed");
         return handle;
     }
 
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_config_free(handle);
+        Native.boltffi_release_class_zenoh_ffi_config_config(this.handle);
     }
 
     /**
@@ -55,9 +61,11 @@ public final class Config implements AutoCloseable {
      * Equivalent to zenoh-java: Config.default()
      */
     public static Config defaultConfig() {
-        long _handle = Native.boltffi_config_default_config();
-        if (_handle == 0L) throw new RuntimeException("Factory constructor failed");
-        return new Config(_handle);
+        try {
+    return new Config(Native.boltffi_init_class_zenoh_ffi_config_config_default_config());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    throw new RuntimeException("Factory constructor failed");
+}
     }
 
     /**
@@ -65,47 +73,82 @@ public final class Config implements AutoCloseable {
      * Equivalent to zenoh-java: Config.fromJson5(json5)
      */
     public static Config fromJson5(String json5) {
-        long _handle = Native.boltffi_config_from_json5(json5.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_handle == 0L) throw new RuntimeException("Factory constructor failed");
-        return new Config(_handle);
+        WireLease __boltffi_json5_wire = WireWriterPool.acquire(WireSizes.string(json5));
+        try {
+    WireWriter __boltffi_json5_writer = __boltffi_json5_wire.writer();
+    __boltffi_json5_writer.writeString(json5);
+    try {
+        return new Config(Native.boltffi_init_class_zenoh_ffi_config_config_from_json5(__boltffi_json5_wire.directBuffer(), __boltffi_json5_wire.size()));
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        throw new RuntimeException("Factory constructor failed");
+    }
+} finally {
+    __boltffi_json5_wire.close();
+}
     }
 
     /**
      * Insert a JSON5 value at the given key path.
-     * Example: insert_json5("mode", "\"router\"")
+     * Example: insert_json5("mode", "&#92;"router&#92;"")
      */
     public void insertJson5(String key, String value) {
-        byte[] _buf = Native.boltffi_config_insert_json5(handle, key.getBytes(java.nio.charset.StandardCharsets.UTF_8), value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        WireLease __boltffi_key_wire = WireWriterPool.acquire(WireSizes.string(key));
+        WireLease __boltffi_value_wire = WireWriterPool.acquire(WireSizes.string(value));
+        try {
+    WireWriter __boltffi_key_writer = __boltffi_key_wire.writer();
+    __boltffi_key_writer.writeString(key);
+    WireWriter __boltffi_value_writer = __boltffi_value_wire.writer();
+    __boltffi_value_writer.writeString(value);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_insert_json5(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size(), __boltffi_value_wire.directBuffer(), __boltffi_value_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_key_wire.close();
+    __boltffi_value_wire.close();
+}
     }
 
     /**
      * Get a JSON value at the given key path.
      */
     public String getJson(String key) {
-        byte[] _buf = Native.boltffi_config_get_json(handle, key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
-        return reader.readString();
+        WireLease __boltffi_key_wire = WireWriterPool.acquire(WireSizes.string(key));
+        try {
+    WireWriter __boltffi_key_writer = __boltffi_key_wire.writer();
+    __boltffi_key_writer.writeString(key);
+    try {
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_config_config_get_json(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size());
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readString();
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_key_wire.close();
+}
     }
 
     /**
      * Set the node mode: "router", "peer", or "client".
      */
     public void setMode(String mode) {
-        byte[] _buf = Native.boltffi_config_set_mode(handle, mode.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        WireLease __boltffi_mode_wire = WireWriterPool.acquire(WireSizes.string(mode));
+        try {
+    WireWriter __boltffi_mode_writer = __boltffi_mode_wire.writer();
+    __boltffi_mode_writer.writeString(mode);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_set_mode(this.rawHandle(), __boltffi_mode_wire.directBuffer(), __boltffi_mode_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_mode_wire.close();
+}
     }
 
     /**
@@ -113,91 +156,104 @@ public final class Config implements AutoCloseable {
      * Example: set_listen_endpoints(vec!["tcp/[::]:7447".to_string()])
      */
     public void setListenEndpoints(java.util.List<String> endpoints) {
-        try (
-            WireWriter _wire_endpoints = new WireWriter(WireWriter.listWireSize(endpoints, sizeItem0 -> (4 + (4 + (sizeItem0).length() * 3))))
-        ) {
-            _wire_endpoints.writeI32(endpoints.size()); for (String item0 : endpoints) { _wire_endpoints.writeString(item0); };
-            byte[] _buf = Native.boltffi_config_set_listen_endpoints(handle, _wire_endpoints.toBuffer());
-            if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-            WireReader reader = new WireReader(_buf);
-            if (reader.readI8() != 0) {
-                throw new RuntimeException(reader.readString());
-            }
-        }
+        WireLease __boltffi_endpoints_wire = WireWriterPool.acquire(WireSizes.stringSequence(endpoints));
+        try {
+    WireWriter __boltffi_endpoints_writer = __boltffi_endpoints_wire.writer();
+    __boltffi_endpoints_writer.writeStringSequence(endpoints);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_set_listen_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_endpoints_wire.close();
+}
     }
 
     /**
      * Set connect endpoints.
      */
     public void setConnectEndpoints(java.util.List<String> endpoints) {
-        try (
-            WireWriter _wire_endpoints = new WireWriter(WireWriter.listWireSize(endpoints, sizeItem0 -> (4 + (4 + (sizeItem0).length() * 3))))
-        ) {
-            _wire_endpoints.writeI32(endpoints.size()); for (String item0 : endpoints) { _wire_endpoints.writeString(item0); };
-            byte[] _buf = Native.boltffi_config_set_connect_endpoints(handle, _wire_endpoints.toBuffer());
-            if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-            WireReader reader = new WireReader(_buf);
-            if (reader.readI8() != 0) {
-                throw new RuntimeException(reader.readString());
-            }
-        }
+        WireLease __boltffi_endpoints_wire = WireWriterPool.acquire(WireSizes.stringSequence(endpoints));
+        try {
+    WireWriter __boltffi_endpoints_writer = __boltffi_endpoints_wire.writer();
+    __boltffi_endpoints_writer.writeStringSequence(endpoints);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_set_connect_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_endpoints_wire.close();
+}
     }
 
     /**
      * Enable/disable plugin loading.
      */
     public void setPluginsLoadingEnabled(boolean enabled) {
-        byte[] _buf = Native.boltffi_config_set_plugins_loading_enabled(handle, enabled);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_config_config_set_plugins_loading_enabled(this.rawHandle(), enabled);
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 
     /**
      * Set plugin search directories.
      */
     public void setPluginsSearchDirs(java.util.List<String> dirs) {
-        try (
-            WireWriter _wire_dirs = new WireWriter(WireWriter.listWireSize(dirs, sizeItem0 -> (4 + (4 + (sizeItem0).length() * 3))))
-        ) {
-            _wire_dirs.writeI32(dirs.size()); for (String item0 : dirs) { _wire_dirs.writeString(item0); };
-            byte[] _buf = Native.boltffi_config_set_plugins_search_dirs(handle, _wire_dirs.toBuffer());
-            if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-            WireReader reader = new WireReader(_buf);
-            if (reader.readI8() != 0) {
-                throw new RuntimeException(reader.readString());
-            }
-        }
+        WireLease __boltffi_dirs_wire = WireWriterPool.acquire(WireSizes.stringSequence(dirs));
+        try {
+    WireWriter __boltffi_dirs_writer = __boltffi_dirs_wire.writer();
+    __boltffi_dirs_writer.writeStringSequence(dirs);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_set_plugins_search_dirs(this.rawHandle(), __boltffi_dirs_wire.directBuffer(), __boltffi_dirs_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_dirs_wire.close();
+}
     }
 
     /**
      * Set up default plugin search directories.
      * Includes:
      * - Current directory "."
-     * - User's home zenoh lib directory: ~/.zenoh/lib (macOS/Linux) or %USERPROFILE%\.zenoh\lib (Windows)
+     * - User's home zenoh lib directory: ~/.zenoh/lib (macOS/Linux) or %USERPROFILE%&#92;.zenoh&#92;lib (Windows)
      * Additional custom directories can be appended via `add_plugins_search_dir`.
      */
     public void setDefaultPluginsSearchDirs() {
-        byte[] _buf = Native.boltffi_config_set_default_plugins_search_dirs(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_config_config_set_default_plugins_search_dirs(this.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 
     /**
      * Add a custom plugin search directory to the existing list.
      */
     public void addPluginsSearchDir(String dir) {
-        byte[] _buf = Native.boltffi_config_add_plugins_search_dir(handle, dir.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        WireLease __boltffi_dir_wire = WireWriterPool.acquire(WireSizes.string(dir));
+        try {
+    WireWriter __boltffi_dir_writer = __boltffi_dir_wire.writer();
+    __boltffi_dir_writer.writeString(dir);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_add_plugins_search_dir(this.rawHandle(), __boltffi_dir_wire.directBuffer(), __boltffi_dir_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_dir_wire.close();
+}
     }
 
     /**
@@ -207,11 +263,11 @@ public final class Config implements AutoCloseable {
      * `EmbeddedRouter` so user configs only need to specify additional directories.
      */
     public void ensureDefaultPluginsSearchDirs() {
-        byte[] _buf = Native.boltffi_config_ensure_default_plugins_search_dirs(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_config_config_ensure_default_plugins_search_dirs(this.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 }

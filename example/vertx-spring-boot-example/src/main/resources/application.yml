@@ -34,17 +34,8 @@ vertx:
 vertx.cluster.zenoh:
   app-name: vertx-example
   environment: dev
-  # Router mode: starts EmbeddedRouter with storage plugin support
+  # instance1 runs the router; instance2/instance3 connect to it as clients
   mode: router
 #  listen:
 #    - "tcp/127.0.0.1:7447"
-  # Filesystem backend for persistent storage (plugin: libzenoh_backend_fs.dylib)
-  # Plugin is searched in ~/.zenoh/lib (default) and any custom plugin-dir entries
-  backend: fs
-  # Additional plugin search dirs (optional, ~/.zenoh/lib is always included)
-#  plugin-dir:
-#    - "/opt/zenoh/plugins"
-  # Storage directory name for filesystem backend
-  # Actual path: ~/.zenoh/zenoh_backend_fs/<storage-dir>
-  storage-dir: "zenoh-storage"
 

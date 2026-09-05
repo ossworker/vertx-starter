@@ -1,28 +1,36 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
-import com.workoss.zenoh.Reply;
-import com.workoss.zenoh.Session;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.AsyncMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
-import java.util.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
- * AsyncMap implementation backed entirely by Zenoh storage.
+ * {@link AsyncMap} view over the in-process {@link ZenohMapStore} replica.
  * <p>
- * No local cache — all reads/writes go directly to the Zenoh backend
- * via {@code vertx.executeBlocking()}. Relies on Zenoh's storage plugin
- * (e.g. filesystem backend) for persistence and cross-node consistency.
- * <ul>
- *   <li>put → vertx.executeBlocking(session.put)</li>
- *   <li>get → vertx.executeBlocking(session.get)</li>
- *   <li>remove → vertx.executeBlocking(session.delete)</li>
- *   <li>ttl → vertx.setTimer(delay, ...)</li>
- * </ul>
+ * Reads are plain local memory lookups and complete on the calling thread — no JNI, no
+ * {@code executeBlocking}. Writes mutate the local replica atomically and hand the change to the
+ * store for asynchronous replication to peers.
+ * <p>
+ * {@code putIfAbsent}, {@code removeIfPresent} and {@code replaceIfPresent} run inside a
+ * {@code ConcurrentHashMap} compute block, so they are atomic with respect to other threads on this
+ * node. Across nodes the store is eventually consistent: two nodes racing on the same key can both
+ * observe success and converge on the write that arrives last.
  */
 public class ZenohAsyncMap<K, V> implements AsyncMap<K, V> {
 
@@ -30,285 +38,135 @@ public class ZenohAsyncMap<K, V> implements AsyncMap<K, V> {
 
     private final String mapName;
     private final KeyPrefixStrategy keyPrefix;
-    private final Session session;
-    private final Vertx vertx;
+    private final ZenohMapStore store;
+    private final String rangePrefix;
 
-    public ZenohAsyncMap(String mapName, KeyPrefixStrategy keyPrefix, Session session, Vertx vertx) {
+    public ZenohAsyncMap(String mapName, KeyPrefixStrategy keyPrefix, ZenohMapStore store) {
         this.mapName = mapName;
         this.keyPrefix = keyPrefix;
-        this.session = session;
-        this.vertx = vertx;
+        this.store = store;
+        this.rangePrefix = keyPrefix.mapKey(mapName, "");
     }
-
-    // --- AsyncMap operations: all via vertx.executeBlocking() → Zenoh ---
 
     @Override
     public Future<V> get(K k) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        if (session == null) return Future.succeededFuture(null);
-        return vertx.executeBlocking(() -> querySingle(key));
+        return Future.succeededFuture(deserialize(store.getRaw(entryKey(k))));
     }
 
     @Override
     public Future<Void> put(K k, V v) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(v);
-        if (session != null) {
-            return vertx.<Void>executeBlocking(() -> { doPut(key, data); return null; });
-        }
+        store.putRaw(entryKey(k), serialize(v), 0L);
         return Future.succeededFuture();
     }
 
     @Override
     public Future<Void> put(K k, V v, long ttl) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(v);
-        if (ttl > 0) {
-            vertx.setTimer(ttl, id -> remove(k));
-        }
-        if (session != null) {
-            return vertx.<Void>executeBlocking(() -> { doPut(key, data); return null; });
-        }
+        store.putRaw(entryKey(k), serialize(v), ttl);
         return Future.succeededFuture();
     }
 
     @Override
     public Future<V> putIfAbsent(K k, V v) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(v);
-        if (session == null) return Future.succeededFuture(null);
-        return vertx.executeBlocking(() -> {
-            // Query first — if exists, return existing value
-            V existing = querySingle(key);
-            if (existing != null) {
-                return existing;
-            }
-            doPut(key, data);
-            return null;
-        });
+        return putIfAbsent(k, v, 0L);
     }
 
     @Override
     public Future<V> putIfAbsent(K k, V v, long ttl) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(v);
-        if (session == null) return Future.succeededFuture(null);
-        return vertx.executeBlocking(() -> {
-            V existing = querySingle(key);
-            if (existing != null) {
-                return existing;
-            }
-            doPut(key, data);
-            if (ttl > 0) {
-                vertx.setTimer(ttl, id -> remove(k));
-            }
-            return null;
-        });
+        byte[] existing = store.putRawIfAbsent(entryKey(k), serialize(v), ttl);
+        return Future.succeededFuture(deserialize(existing));
     }
 
     @Override
     public Future<V> remove(K k) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        if (session != null) {
-            return vertx.executeBlocking(() -> {
-                V old = querySingle(key);
-                doDelete(key);
-                return old;
-            });
-        }
-        return Future.succeededFuture(null);
+        return Future.succeededFuture(deserialize(store.removeRaw(entryKey(k))));
     }
 
     @Override
     public Future<Boolean> removeIfPresent(K k, V v) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        if (session == null) return Future.succeededFuture(false);
-        return vertx.executeBlocking(() -> {
-            V current = querySingle(key);
-            if (current != null && current.equals(v)) {
-                doDelete(key);
-                return true;
-            }
-            return false;
-        });
+        return Future.succeededFuture(store.removeRawIf(entryKey(k), equalTo(v)));
     }
 
     @Override
     public Future<V> replace(K k, V v) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(v);
-        if (session == null) return Future.succeededFuture(null);
-        return vertx.executeBlocking(() -> {
-            V current = querySingle(key);
-            if (current != null) {
-                doPut(key, data);
-                return current;
-            }
-            return null;
-        });
+        return Future.succeededFuture(deserialize(store.replaceRaw(entryKey(k), serialize(v))));
     }
 
     @Override
     public Future<Boolean> replaceIfPresent(K k, V oldValue, V newValue) {
-        String key = keyPrefix.mapKey(mapName, serializeKey(k));
-        byte[] data = serialize(newValue);
-        if (session == null) return Future.succeededFuture(false);
-        return vertx.executeBlocking(() -> {
-            V current = querySingle(key);
-            if (current != null && current.equals(oldValue)) {
-                doPut(key, data);
-                return true;
-            }
-            return false;
-        });
+        return Future.succeededFuture(
+                store.replaceRawIf(entryKey(k), equalTo(oldValue), serialize(newValue)));
     }
 
     @Override
     public Future<Void> clear() {
-        if (session == null) return Future.succeededFuture();
-        return vertx.<Void>executeBlocking(() -> {
-            try {
-                List<Reply> replies = session.get(keyPrefix.mapPattern(mapName));
-                for (Reply reply : replies) {
-                    if (reply.success() && reply.sampleKeyExpr().isPresent()) {
-                        doDelete(reply.sampleKeyExpr().get());
-                    }
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to clear via zenoh: {}", e.getMessage());
-            }
-            return null;
-        });
+        store.clearRange(rangePrefix);
+        return Future.succeededFuture();
     }
 
     @Override
     public Future<Integer> size() {
-        if (session == null) return Future.succeededFuture(0);
-        return vertx.executeBlocking(() -> {
-            try {
-                List<Reply> replies = session.get(keyPrefix.mapPattern(mapName));
-                int count = 0;
-                for (Reply reply : replies) {
-                    if (reply.success()) count++;
-                }
-                return count;
-            } catch (Exception e) {
-                logger.debug("Failed to get size from zenoh: {}", e.getMessage());
-                return 0;
-            }
-        });
+        return Future.succeededFuture(store.scanRange(rangePrefix).size());
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public Future<Set<K>> keys() {
-        if (session == null) return Future.succeededFuture(Set.of());
-        String prefix = keyPrefix.mapKey(mapName, "");
-        return vertx.executeBlocking(() -> {
-            Set<K> result = new HashSet<>();
-            try {
-                List<Reply> replies = session.get(keyPrefix.mapPattern(mapName));
-                for (Reply reply : replies) {
-                    if (reply.success() && reply.sampleKeyExpr().isPresent()) {
-                        String fullKey = reply.sampleKeyExpr().get();
-                        if (fullKey.startsWith(prefix)) {
-                            result.add((K) fullKey.substring(prefix.length()));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to get keys from zenoh: {}", e.getMessage());
-            }
-            return result;
-        });
+        Set<K> result = new HashSet<>();
+        for (String fullKey : store.scanRange(rangePrefix).keySet()) {
+            result.add((K) fullKey.substring(rangePrefix.length()));
+        }
+        return Future.succeededFuture(result);
     }
 
     @Override
     public Future<List<V>> values() {
-        if (session == null) return Future.succeededFuture(List.of());
-        return vertx.executeBlocking(() -> {
-            List<V> result = new ArrayList<>();
-            try {
-                List<Reply> replies = session.get(keyPrefix.mapPattern(mapName));
-                for (Reply reply : replies) {
-                    if (reply.success() && reply.samplePayload().isPresent()) {
-                        V v = deserialize(reply.samplePayload().get());
-                        if (v != null) result.add(v);
-                    }
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to get values from zenoh: {}", e.getMessage());
+        List<V> result = new ArrayList<>();
+        for (byte[] raw : store.scanRange(rangePrefix).values()) {
+            V value = deserialize(raw);
+            if (value != null) {
+                result.add(value);
             }
-            return result;
-        });
+        }
+        return Future.succeededFuture(result);
     }
 
     @Override
     @SuppressWarnings("unchecked")
     public Future<Map<K, V>> entries() {
-        if (session == null) return Future.succeededFuture(Map.of());
-        String prefix = keyPrefix.mapKey(mapName, "");
-        return vertx.executeBlocking(() -> {
-            Map<K, V> result = new HashMap<>();
-            try {
-                List<Reply> replies = session.get(keyPrefix.mapPattern(mapName));
-                for (Reply reply : replies) {
-                    if (reply.success() && reply.sampleKeyExpr().isPresent()
-                            && reply.samplePayload().isPresent()) {
-                        String fullKey = reply.sampleKeyExpr().get();
-                        if (fullKey.startsWith(prefix)) {
-                            K key = (K) fullKey.substring(prefix.length());
-                            V value = deserialize(reply.samplePayload().get());
-                            if (value != null) result.put(key, value);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to get entries from zenoh: {}", e.getMessage());
+        Map<K, V> result = new HashMap<>();
+        for (Map.Entry<String, byte[]> e : store.scanRange(rangePrefix).entrySet()) {
+            V value = deserialize(e.getValue());
+            if (value != null) {
+                result.put((K) e.getKey().substring(rangePrefix.length()), value);
             }
-            return result;
-        });
+        }
+        return Future.succeededFuture(result);
     }
 
-    // --- Zenoh I/O helpers ---
-
-    @SuppressWarnings("unchecked")
-    private V querySingle(String key) {
-        try {
-            List<Reply> replies = session.get(key);
-            for (Reply reply : replies) {
-                if (reply.success() && reply.samplePayload().isPresent()) {
-                    return (V) deserialize(reply.samplePayload().get());
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to query Zenoh for key '{}': {}", key, e.getMessage());
-        }
-        return null;
+    public String getMapName() {
+        return mapName;
     }
 
-    private void doPut(String key, byte[] data) {
-        try {
-            session.put(key, data);
-        } catch (Exception e) {
-            logger.warn("Failed to put to Zenoh '{}': {}", key, e.getMessage());
-        }
+    private String entryKey(K k) {
+        return keyPrefix.mapKey(mapName, serializeKey(k));
     }
 
-    private void doDelete(String key) {
-        try {
-            session.delete(key);
-        } catch (Exception e) {
-            logger.warn("Failed to delete from Zenoh '{}': {}", key, e.getMessage());
-        }
+    /**
+     * Runs inside the store's atomic compute block, so the stored bytes are deserialized on every
+     * comparison. Comparing serialized bytes instead would be wrong: JDK serialization is not
+     * canonical for values such as {@code HashMap}, whose field order depends on iteration order.
+     */
+    private Predicate<byte[]> equalTo(V expected) {
+        return stored -> Objects.equals(deserialize(stored), expected);
     }
 
     // --- Serialization ---
 
     private String serializeKey(K key) {
-        if (key instanceof String s) return s;
-        byte[] data = serialize(key);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+        if (key instanceof String s) {
+            return s;
+        }
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(serialize(key));
     }
 
     private byte[] serialize(Object obj) {
@@ -317,18 +175,21 @@ public class ZenohAsyncMap<K, V> implements AsyncMap<K, V> {
             oos.writeObject(obj);
             return bos.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("Serialization failed", e);
+            throw new IllegalArgumentException(
+                    "Cannot store a non-serializable value in async map '" + mapName + "'", e);
         }
     }
 
     @SuppressWarnings("unchecked")
     private <T> T deserialize(byte[] data) {
-        if (data == null || data.length == 0) return null;
+        if (data == null || data.length == 0) {
+            return null;
+        }
         try (ByteArrayInputStream bis = new ByteArrayInputStream(data);
              ObjectInputStream ois = new ObjectInputStream(bis)) {
             return (T) ois.readObject();
         } catch (IOException | ClassNotFoundException e) {
-            logger.debug("Deserialization failed: {}", e.getMessage());
+            logger.debug("Deserialization failed in async map '{}': {}", mapName, e.getMessage());
             return null;
         }
     }

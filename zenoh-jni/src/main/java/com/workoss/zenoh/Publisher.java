@@ -2,10 +2,6 @@ package com.workoss.zenoh;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * A Zenoh publisher for a specific key expression.
- * Equivalent to zenoh-java: Publisher
- */
 public final class Publisher implements AutoCloseable {
     private final long handle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -17,40 +13,55 @@ public final class Publisher implements AutoCloseable {
     /**
      * Declare a publisher on the given session.
      * Equivalent to zenoh-java: session.declarePublisher(keyExpr)
-     *
+     * 
      * Note: lives in Publisher's `#[export]` block (returning `Result<Self, _>`)
      * because boltffi 0.25 only allows `#[export]` methods to return `Self`
      * for non-`#[data]` opaque types.
      */
     public Publisher(Session session, String keyExpr, java.util.Optional<Byte> congestionControl, java.util.Optional<Byte> priority, java.util.Optional<Boolean> express, java.util.Optional<Byte> reliability) {
-        this(Publisher.createHandle0(session, keyExpr, congestionControl, priority, express, reliability));
+        this(Publisher.__boltffiCreateHandle0(session, keyExpr, congestionControl, priority, express, reliability));
     }
 
-    private static long createHandle0(Session session, String keyExpr, java.util.Optional<Byte> congestionControl, java.util.Optional<Byte> priority, java.util.Optional<Boolean> express, java.util.Optional<Byte> reliability) {
-        try (
-            WireWriter _wire_congestion_control = new WireWriter((1 + ((congestionControl).isPresent() ? (1) : 0)));
-            WireWriter _wire_priority = new WireWriter((1 + ((priority).isPresent() ? (1) : 0)));
-            WireWriter _wire_express = new WireWriter((1 + ((express).isPresent() ? (1) : 0)));
-            WireWriter _wire_reliability = new WireWriter((1 + ((reliability).isPresent() ? (1) : 0)))
-        ) {
-            if ((congestionControl).isPresent()) { _wire_congestion_control.writeI8((byte)1); _wire_congestion_control.writeI8((congestionControl).get()); } else { _wire_congestion_control.writeI8((byte)0); };
-            if ((priority).isPresent()) { _wire_priority.writeI8((byte)1); _wire_priority.writeI8((priority).get()); } else { _wire_priority.writeI8((byte)0); };
-            if ((express).isPresent()) { _wire_express.writeI8((byte)1); _wire_express.writeBool((express).get()); } else { _wire_express.writeI8((byte)0); };
-            if ((reliability).isPresent()) { _wire_reliability.writeI8((byte)1); _wire_reliability.writeI8((reliability).get()); } else { _wire_reliability.writeI8((byte)0); };
-            long _handle = Native.boltffi_publisher_declare(session.rawHandle(), keyExpr.getBytes(java.nio.charset.StandardCharsets.UTF_8), _wire_congestion_control.toBuffer(), _wire_priority.toBuffer(), _wire_express.toBuffer(), _wire_reliability.toBuffer());
-            if (_handle == 0L) throw new RuntimeException("Constructor failed");
-            return _handle;
-        }
+    private static long __boltffiCreateHandle0(Session session, String keyExpr, java.util.Optional<Byte> congestionControl, java.util.Optional<Byte> priority, java.util.Optional<Boolean> express, java.util.Optional<Byte> reliability) {
+        WireLease __boltffi_keyExpr_wire = WireWriterPool.acquire(WireSizes.string(keyExpr));
+        WireLease __boltffi_congestionControl_wire = WireWriterPool.acquire((1 + (congestionControl.isPresent() ? 1 : 0)));
+        WireLease __boltffi_priority_wire = WireWriterPool.acquire((1 + (priority.isPresent() ? 1 : 0)));
+        WireLease __boltffi_express_wire = WireWriterPool.acquire((1 + (express.isPresent() ? 1 : 0)));
+        WireLease __boltffi_reliability_wire = WireWriterPool.acquire((1 + (reliability.isPresent() ? 1 : 0)));
+        try {
+    WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
+    __boltffi_keyExpr_writer.writeString(keyExpr);
+    WireWriter __boltffi_congestionControl_writer = __boltffi_congestionControl_wire.writer();
+    __boltffi_congestionControl_writer.writeOptional(congestionControl, (__boltffi_congestionControl_value) -> { __boltffi_congestionControl_writer.writeByte(__boltffi_congestionControl_value); });
+    WireWriter __boltffi_priority_writer = __boltffi_priority_wire.writer();
+    __boltffi_priority_writer.writeOptional(priority, (__boltffi_priority_value) -> { __boltffi_priority_writer.writeByte(__boltffi_priority_value); });
+    WireWriter __boltffi_express_writer = __boltffi_express_wire.writer();
+    __boltffi_express_writer.writeOptional(express, (__boltffi_express_value) -> { __boltffi_express_writer.writeBoolean(__boltffi_express_value); });
+    WireWriter __boltffi_reliability_writer = __boltffi_reliability_wire.writer();
+    __boltffi_reliability_writer.writeOptional(reliability, (__boltffi_reliability_value) -> { __boltffi_reliability_writer.writeByte(__boltffi_reliability_value); });
+    try {
+        return Native.boltffi_init_class_zenoh_ffi_publisher_publisher_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_congestionControl_wire.directBuffer(), __boltffi_congestionControl_wire.size(), __boltffi_priority_wire.directBuffer(), __boltffi_priority_wire.size(), __boltffi_express_wire.directBuffer(), __boltffi_express_wire.size(), __boltffi_reliability_wire.directBuffer(), __boltffi_reliability_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        throw new RuntimeException("Constructor failed");
+    }
+} finally {
+    __boltffi_keyExpr_wire.close();
+    __boltffi_congestionControl_wire.close();
+    __boltffi_priority_wire.close();
+    __boltffi_express_wire.close();
+    __boltffi_reliability_wire.close();
+}
     }
 
     long rawHandle() {
+        if (closed.get()) throw new IllegalStateException("Publisher is closed");
         return handle;
     }
 
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_publisher_free(handle);
+        Native.boltffi_release_class_zenoh_ffi_publisher_publisher(this.handle);
     }
 
     /**
@@ -58,24 +69,42 @@ public final class Publisher implements AutoCloseable {
      * Equivalent to zenoh-java: publisher.put(payload)
      */
     public void put(byte[] payload) {
-        byte[] _buf = Native.boltffi_publisher_put(handle, payload);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        WireLease __boltffi_payload_wire = WireWriterPool.acquire((4 + payload.length));
+        try {
+    WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
+    __boltffi_payload_writer.writeBytes(payload);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_publisher_publisher_put(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_payload_wire.close();
+}
     }
 
     /**
      * Put data with a specific encoding string (e.g. "text/plain", "application/json").
      */
     public void putWithEncoding(byte[] payload, String encoding) {
-        byte[] _buf = Native.boltffi_publisher_put_with_encoding(handle, payload, encoding.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        WireLease __boltffi_payload_wire = WireWriterPool.acquire((4 + payload.length));
+        WireLease __boltffi_encoding_wire = WireWriterPool.acquire(WireSizes.string(encoding));
+        try {
+    WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
+    __boltffi_payload_writer.writeBytes(payload);
+    WireWriter __boltffi_encoding_writer = __boltffi_encoding_wire.writer();
+    __boltffi_encoding_writer.writeString(encoding);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_publisher_publisher_put_with_encoding(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size(), __boltffi_encoding_wire.directBuffer(), __boltffi_encoding_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_payload_wire.close();
+    __boltffi_encoding_wire.close();
+}
     }
 
     /**
@@ -83,12 +112,12 @@ public final class Publisher implements AutoCloseable {
      * Equivalent to zenoh-java: publisher.delete()
      */
     public void delete() {
-        byte[] _buf = Native.boltffi_publisher_delete(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_publisher_publisher_delete(this.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 
     /**
@@ -98,21 +127,20 @@ public final class Publisher implements AutoCloseable {
      * when its underlying handle is dropped.
      */
     public void undeclare() {
-        byte[] _buf = Native.boltffi_publisher_undeclare(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_publisher_publisher_undeclare(this.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 
     /**
      * Get the key expression this publisher is associated with.
      */
     public String getKeyExpr() {
-        byte[] _buf = Native.boltffi_publisher_get_key_expr(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        return reader.readString();
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_publisher_publisher_get_key_expr(this.rawHandle());
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readString();
     }
 }

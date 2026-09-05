@@ -18,6 +18,7 @@
         <module>vertx-spring-boot-web-client</module>
         <module>vertx-spring-boot-cluster-zenoh</module>
         <module>vertx-spring-boot-data-dict</module>
+        <module>vertx-spring-boot-mybatis</module>
         <module>vertx-spring-boot-starter</module>
         <module>example</module>
         <module>zenoh-jni</module>
@@ -30,8 +31,10 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <spring-boot.version>3.5.14</spring-boot.version>
-        <vertx.version>5.1.2</vertx.version>
-        <zenoh-java.version>1.9.0</zenoh-java.version>
+        <vertx.version>5.1.7</vertx.version>
+        <mybatis.version>3.5.19</mybatis.version>
+        <mybatis-spring.version>3.0.5</mybatis-spring.version>
+        <mybatis-spring-boot.version>3.0.5</mybatis-spring-boot.version>
     </properties>
 
     <dependencyManagement>
@@ -64,13 +67,6 @@
                         <artifactId>spring-boot-starter-logging</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-
-            <!-- Zenoh Java -->
-            <dependency>
-                <groupId>org.eclipse.zenoh</groupId>
-                <artifactId>zenoh-java</artifactId>
-                <version>${zenoh-java.version}</version>
             </dependency>
 
             <!-- Override Vert.x BOM's log4j scope (it sets test scope, we need compile) -->
@@ -112,9 +108,26 @@
                 <version>${project.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.workoss.boot.vertx</groupId>
+                <artifactId>vertx-spring-boot-mybatis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.workoss.zenoh</groupId>
                 <artifactId>zenoh-jni</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <!-- MyBatis Spring integration -->
+            <dependency>
+                <groupId>org.mybatis</groupId>
+                <artifactId>mybatis-spring</artifactId>
+                <version>${mybatis-spring.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mybatis.spring.boot</groupId>
+                <artifactId>mybatis-spring-boot-autoconfigure</artifactId>
+                <version>${mybatis-spring-boot.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

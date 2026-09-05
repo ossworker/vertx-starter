@@ -1,2 +1,8 @@
 server:
   port: 8083
+
+# Only instance1 runs the router; this node connects to it as a client
+vertx.cluster.zenoh:
+  mode: client
+  connect:
+    - "tcp/127.0.0.1:7447"

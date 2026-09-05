@@ -41,38 +41,6 @@ public class ZenohClusterProperties {
      */
     private String configFile;
 
-    /**
-     * Storage backend type: filesystem, rocksdb, s3, or none.
-     * <ul>
-     *   <li>filesystem - uses libzenoh_backend_fs plugin (local file storage, default)</li>
-     *   <li>rocksdb - uses libzenoh_backend_rocksdb plugin (RocksDB storage)</li>
-     *   <li>s3 - uses libzenoh_backend_s3 plugin (S3-compatible object storage)</li>
-     *   <li>none - in-memory mode, no plugin loaded (sharedData not persistent)</li>
-     * </ul>
-     */
-    private String backend = "none";
-
-    /**
-     * Additional plugin search directories for backend plugins.
-     * <p>
-     * The default search directory {@code ~/.zenoh/lib} is always included automatically.
-     * Add extra directories here if plugins are installed in non-standard locations.
-     * <p>
-     * Example: {@code plugin-dir: [/opt/zenoh/plugins, /usr/local/lib/zenoh]}
-     */
-    private List<String> pluginDir = new ArrayList<>();
-
-    /**
-     * Directory name for filesystem/rocksdb backends to store data.
-     * <p>
-     * The filesystem backend stores data relative to its root directory
-     * ({@code ~/.zenoh/zenoh_backend_fs/}), so the actual path will be
-     * {@code ~/.zenoh/zenoh_backend_fs/<storage-dir>}.
-     * <p>
-     * Defaults to "zenoh-storage".
-     */
-    private String storageDir = "zenoh-storage";
-
     public String getAppName() {
         return appName;
     }
@@ -119,29 +87,5 @@ public class ZenohClusterProperties {
 
     public void setConfigFile(String configFile) {
         this.configFile = configFile;
-    }
-
-    public String getBackend() {
-        return backend;
-    }
-
-    public void setBackend(String backend) {
-        this.backend = backend;
-    }
-
-    public List<String> getPluginDir() {
-        return pluginDir;
-    }
-
-    public void setPluginDir(List<String> pluginDir) {
-        this.pluginDir = pluginDir;
-    }
-
-    public String getStorageDir() {
-        return storageDir;
-    }
-
-    public void setStorageDir(String storageDir) {
-        this.storageDir = storageDir;
     }
 }

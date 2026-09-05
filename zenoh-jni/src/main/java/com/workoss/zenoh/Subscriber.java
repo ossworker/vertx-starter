@@ -2,11 +2,6 @@ package com.workoss.zenoh;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * A Zenoh subscriber that receives data on a key expression.
- * Uses a callback-fed channel so Java/Kotlin side can poll samples via
- * `recv()` / `try_recv()`.
- */
 public final class Subscriber implements AutoCloseable {
     private final long handle;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -18,46 +13,55 @@ public final class Subscriber implements AutoCloseable {
     /**
      * Declare a subscriber on the given session.
      * Equivalent to zenoh-java: session.declareSubscriber(keyExpr)
-     *
+     * 
      * Note: lives in Subscriber's `#[export]` block (returning `Result<Self, _>`)
      * because boltffi 0.25 only allows `#[export]` methods to return `Self`
      * for non-`#[data]` opaque types.
      */
     public Subscriber(Session session, String keyExpr) {
-        this(Subscriber.createHandle0(session, keyExpr));
+        this(Subscriber.__boltffiCreateHandle0(session, keyExpr));
     }
 
-    private static long createHandle0(Session session, String keyExpr) {
-        long _handle = Native.boltffi_subscriber_declare(session.rawHandle(), keyExpr.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (_handle == 0L) throw new RuntimeException("Constructor failed");
-        return _handle;
+    private static long __boltffiCreateHandle0(Session session, String keyExpr) {
+        WireLease __boltffi_keyExpr_wire = WireWriterPool.acquire(WireSizes.string(keyExpr));
+        try {
+    WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
+    __boltffi_keyExpr_writer.writeString(keyExpr);
+    try {
+        return Native.boltffi_init_class_zenoh_ffi_subscriber_subscriber_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        throw new RuntimeException("Constructor failed");
+    }
+} finally {
+    __boltffi_keyExpr_wire.close();
+}
     }
 
     long rawHandle() {
+        if (closed.get()) throw new IllegalStateException("Subscriber is closed");
         return handle;
     }
 
     @Override
     public void close() {
         if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_subscriber_free(handle);
+        Native.boltffi_release_class_zenoh_ffi_subscriber_subscriber(this.handle);
     }
 
     /**
      * Get the key expression this subscriber is listening on.
      */
     public String getKeyExpr() {
-        byte[] _buf = Native.boltffi_subscriber_get_key_expr(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        return reader.readString();
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_get_key_expr(this.rawHandle());
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readString();
     }
 
     /**
      * Check if the subscriber has been undeclared.
      */
     public boolean isUndeclared() {
-        return Native.boltffi_subscriber_is_undeclared(handle);
+        return Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_is_undeclared(this.rawHandle());
     }
 
     /**
@@ -65,12 +69,12 @@ public final class Subscriber implements AutoCloseable {
      * Equivalent to zenoh-java: subscriber.undeclare()
      */
     public void undeclare() {
-        byte[] _buf = Native.boltffi_subscriber_undeclare(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        if (reader.readI8() != 0) {
-            throw new RuntimeException(reader.readString());
-        }
+        try {
+    Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_undeclare(this.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+    throw new RuntimeException(__boltffi_error_reader.readString());
+}
     }
 
     /**
@@ -78,10 +82,9 @@ public final class Subscriber implements AutoCloseable {
      * Returns None if the subscriber has been undeclared or the channel closed.
      */
     public java.util.Optional<Sample> recv() {
-        byte[] _buf = Native.boltffi_subscriber_recv(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        return reader.readI8() == 0 ? java.util.Optional.empty() : java.util.Optional.ofNullable(Sample.decode(reader));
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_recv(this.rawHandle());
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readOptional(() -> Sample.fromReader(__boltffi_reader));
     }
 
     /**
@@ -89,9 +92,8 @@ public final class Subscriber implements AutoCloseable {
      * Returns None if no sample is currently available.
      */
     public java.util.Optional<Sample> tryRecv() {
-        byte[] _buf = Native.boltffi_subscriber_try_recv(handle);
-        if (_buf == null) throw new RuntimeException("FFI call returned null buffer");
-        WireReader reader = new WireReader(_buf);
-        return reader.readI8() == 0 ? java.util.Optional.empty() : java.util.Optional.ofNullable(Sample.decode(reader));
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_try_recv(this.rawHandle());
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readOptional(() -> Sample.fromReader(__boltffi_reader));
     }
 }

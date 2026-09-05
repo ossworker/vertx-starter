@@ -1,148 +1,107 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
-import com.workoss.zenoh.Reply;
-import com.workoss.zenoh.Session;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.core.shareddata.Counter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 
 /**
- * Counter implementation backed by Zenoh key-value store via zenoh-jni.
- * Uses {@code vertx.executeBlocking()} for all blocking Zenoh calls.
- * No custom thread pool needed — Vert.x manages the worker pool.
+ * Cluster {@link Counter} held in the replicated {@link ZenohMapStore}.
  * <p>
- * Each mutating operation performs read-modify-write with retry:
- * 1. Read current value from Zenoh (session.get)
- * 2. Compute new value locally
- * 3. Write new value to Zenoh (session.put)
+ * Read-modify-write runs inside a single {@code ConcurrentHashMap} compute block, so increments are
+ * atomic against every other thread on this node and no retry loop is needed. Replication to peers
+ * is asynchronous, which means two nodes incrementing at the same instant can each apply their own
+ * delta locally and converge on the write that arrives last — losing one of the two increments.
+ * Counters that must not lose increments need a single arbiter (an external KV with atomic
+ * operations, or one elected writer per counter).
  */
 public class ZenohCounter implements Counter {
 
     private static final Logger logger = LoggerFactory.getLogger(ZenohCounter.class);
-    private static final int MAX_RETRIES = 3;
 
     private final String counterName;
     private final KeyPrefixStrategy keyPrefix;
-    private final Session session;
-    private final Vertx vertx;
+    private final ZenohMapStore store;
 
-    public ZenohCounter(String counterName, KeyPrefixStrategy keyPrefix, Session session, Vertx vertx) {
+    public ZenohCounter(String counterName, KeyPrefixStrategy keyPrefix, ZenohMapStore store) {
         this.counterName = counterName;
         this.keyPrefix = keyPrefix;
-        this.session = session;
-        this.vertx = vertx;
+        this.store = store;
     }
 
     @Override
     public Future<Long> get() {
-        if (session == null) return Future.succeededFuture(0L);
-        return vertx.executeBlocking(this::readFromZenoh);
+        return Future.succeededFuture(read());
     }
 
     @Override
     public Future<Long> incrementAndGet() {
-        if (session == null) return Future.succeededFuture(1L);
-        return vertx.executeBlocking(() -> readModifyWrite(1));
+        return Future.succeededFuture(add(1L));
     }
 
     @Override
     public Future<Long> getAndIncrement() {
-        if (session == null) return Future.succeededFuture(0L);
-        return vertx.executeBlocking(() -> readModifyWrite(1) - 1);
+        return Future.succeededFuture(add(1L) - 1L);
     }
 
     @Override
     public Future<Long> decrementAndGet() {
-        if (session == null) return Future.succeededFuture(-1L);
-        return vertx.executeBlocking(() -> readModifyWrite(-1));
+        return Future.succeededFuture(add(-1L));
     }
 
     @Override
     public Future<Long> addAndGet(long amount) {
-        if (session == null) return Future.succeededFuture(amount);
-        return vertx.executeBlocking(() -> readModifyWrite(amount));
+        return Future.succeededFuture(add(amount));
     }
 
     @Override
     public Future<Long> getAndAdd(long amount) {
-        if (session == null) return Future.succeededFuture(0L);
-        return vertx.executeBlocking(() -> readModifyWrite(amount) - amount);
+        return Future.succeededFuture(add(amount) - amount);
     }
 
     @Override
     public Future<Boolean> compareAndSet(long expected, long update) {
-        if (session == null) return Future.succeededFuture(false);
-        return vertx.executeBlocking(() -> {
-            String key = keyPrefix.counterKey(counterName);
-            try {
-                long current = readFromZenoh();
-                if (current == expected) {
-                    writeToZenoh(key, update);
-                    return true;
-                }
-                return false;
-            } catch (Exception e) {
-                logger.warn("compareAndSet failed: {}", e.getMessage());
-                return false;
+        boolean[] swapped = new boolean[1];
+        store.computeRaw(key(), current -> {
+            if (toLong(current) != expected) {
+                return current;
             }
+            swapped[0] = true;
+            return fromLong(update);
         });
+        return Future.succeededFuture(swapped[0]);
     }
 
-    private long readModifyWrite(long delta) {
-        String key = keyPrefix.counterKey(counterName);
-        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            try {
-                long current = readFromZenoh();
-                long newValue = current + delta;
-                writeToZenoh(key, newValue);
-                return newValue;
-            } catch (Exception e) {
-                logger.debug("readModifyWrite attempt {} failed: {}", attempt + 1, e.getMessage());
+    private long add(long delta) {
+        long[] result = new long[1];
+        store.computeRaw(key(), current -> {
+            result[0] = toLong(current) + delta;
+            return fromLong(result[0]);
+        });
+        return result[0];
+    }
+
+    private long read() {
+        return toLong(store.getRaw(key()));
+    }
+
+    private String key() {
+        return keyPrefix.counterKey(counterName);
+    }
+
+    private static long toLong(byte[] value) {
+        if (value == null || value.length != Long.BYTES) {
+            if (value != null) {
+                logger.warn("Ignoring malformed counter value of {} byte(s)", value.length);
             }
+            return 0L;
         }
-        logger.warn("readModifyWrite exhausted {} retries for counter '{}'", MAX_RETRIES, counterName);
-        return delta;
+        return ByteBuffer.wrap(value).getLong();
     }
 
-    private long readFromZenoh() {
-        String key = keyPrefix.counterKey(counterName);
-        try {
-            List<Reply> replies = session.get(key);
-            for (Reply reply : replies) {
-                if (reply.success() && reply.samplePayload().isPresent()) {
-                    byte[] data = reply.samplePayload().get();
-                    if (data.length == 8) {
-                        return bytesToLong(data);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.debug("Failed to read counter from Zenoh: {}", e.getMessage());
-        }
-        return 0;
-    }
-
-    private void writeToZenoh(String key, long val) {
-        try {
-            session.put(key, longToBytes(val));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to write counter to Zenoh: " + e.getMessage(), e);
-        }
-    }
-
-    private static byte[] longToBytes(long val) {
-        ByteBuffer buffer = ByteBuffer.allocate(8);
-        buffer.putLong(val);
-        return buffer.array();
-    }
-
-    private static long bytesToLong(byte[] bytes) {
-        ByteBuffer buffer = ByteBuffer.wrap(bytes);
-        return buffer.getLong();
+    private static byte[] fromLong(long value) {
+        return ByteBuffer.allocate(Long.BYTES).putLong(value).array();
     }
 }
