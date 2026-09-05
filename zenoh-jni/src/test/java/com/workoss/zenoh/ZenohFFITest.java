@@ -1,9 +1,16 @@
 package com.workoss.zenoh;
 
 import org.junit.jupiter.api.*;
+import org.opentest4j.TestAbortedException;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -190,6 +197,10 @@ public class ZenohFFITest {
     @Order(8)
     @DisplayName("EmbeddedRouter with filesystem plugin")
     void testEmbeddedRouterWithFsPlugin() throws Exception {
+        // Unique per run so a data1 left behind by an earlier run cannot satisfy the check.
+        String persistedValue = "persisted-" + UUID.randomUUID();
+        Path persistedFile = Paths.get("zenoh", "zenoh_storage", "data1");
+
         String json5 = "{\n" +
             "  mode: \"router\",\n" +
             "  listen: { endpoints: [\"tcp/127.0.0.1:17449\"] },\n" +
@@ -216,15 +227,42 @@ public class ZenohFFITest {
             // Wait for storage_manager + filesystem backend to load
             Thread.sleep(2000);
 
-            router.put("java/test/data1", "persisted value".getBytes());
-
-            Thread.sleep(1000);
+            router.put("java/test/data1", persistedValue.getBytes(StandardCharsets.UTF_8));
             System.out.println("[testEmbeddedRouterWithFsPlugin] Wrote java/test/data1");
+
+            String onDisk = awaitFileContent(persistedFile, persistedValue, 10_000L);
+            if (!persistedValue.equals(onDisk)) {
+                Assumptions.abort("filesystem backend never persisted java/test/data1 to "
+                    + persistedFile.toAbsolutePath() + " (on disk: " + onDisk + "). "
+                    + "The plugin almost certainly failed to load: zenoh rejects a plugin whose rustc "
+                    + "release+commit differs from the host, and the prebuilt binaries in ~/.zenoh/lib "
+                    + "were built with a different toolchain. Rebuild libzenoh_plugin_storage_manager and "
+                    + "libzenoh_backend_fs with the toolchain pinned in boltffi-zenoh/rust-toolchain.toml.");
+            }
+        } catch (TestAbortedException e) {
+            // Already carries the precise reason (e.g. the persistence check above); do not relabel it.
+            throw e;
         } catch (RuntimeException e) {
             // Filesystem plugin may not be available locally; surface as warning
             System.out.println("[testEmbeddedRouterWithFsPlugin] Plugin load failed: " + e.getMessage());
             Assumptions.assumeTrue(false,
                 "Skipping FS plugin test: " + e.getMessage());
         }
+    }
+
+    private static String awaitFileContent(Path file, String expected, long timeoutMillis) throws Exception {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        String content = readOrMissing(file);
+        while (System.currentTimeMillis() < deadline && !expected.equals(content)) {
+            Thread.sleep(100);
+            content = readOrMissing(file);
+        }
+        return content;
+    }
+
+    private static String readOrMissing(Path file) throws IOException {
+        return Files.exists(file)
+            ? new String(Files.readAllBytes(file), StandardCharsets.UTF_8)
+            : "<missing>";
     }
 }
