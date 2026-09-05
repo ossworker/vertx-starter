@@ -1,4 +1,4 @@
-# Java 生产级客服平台完整方案（IM + 工单/SLA）
+# Java 生产级客服 IM 平台完整方案（含会话级 SLA）
 
 > 基线：Java 21 · Vert.x 5.1.7 · Spring Boot 3.5.14 · PostgreSQL · Zenoh（事件面）· GoRules ZEN
 > 落地位置：本仓库 `/Users/apple/IDE/ideaProjects/vertx-starter` 新增 `customer-service/` 多模块
@@ -14,7 +14,7 @@
 | 源文档 | 采纳方式 |
 |---|---|
 | `production-customer-service-im-architecture.md` | **全量采纳**为主干（IM、传输分级、派单、消息协议、Zenoh topic、DDL），但传输优先级按 Java 现实重排 |
-| `rust-customer-service-helpdesk-complete-design.md` | 采纳 **Conversation/Ticket 分离、Ticket 状态机、SLA 独立域、Queue+Routing 打分、Outbox、多租户/权限** |
+| `rust-customer-service-helpdesk-complete-design.md` | **部分采纳**：Queue+Routing 打分、Outbox、多租户/权限、以及「SLA 作为独立域」这一建模手法（但收窄为**会话级** SLA）。**Ticket 相关全部不采纳**——工单是独立的通用服务，不在本系统（见第 12.1 节） |
 | `rust-customer-agent-runtime-design.md` | **不落设计**，仅保留扩展接缝（第 13.6 节），Phase 1 不做 |
 
 文中每条技术结论都来自实测代码或已核实的外部事实，第 2 章与附录 A 给出可追溯清单。**凡 Java 生态不具备的能力，本文直接写"不可行"并给出替代路径，不做能力承诺。**
@@ -25,22 +25,24 @@
 
 ### 1.1 目标
 
-构建可水平扩展的生产级客服平台，覆盖：
+构建可水平扩展的生产级客服 IM 平台，覆盖：
 
 - 消费者发起咨询 → 自动创建会话 → 规则决策 → 自动/手动派单 → 实时双向通信 → 转接/结束
 - 多类型消息（文本/富文本/图片/视频/音频/文件/卡片/动作卡/位置/系统通知/撤回/表情回应）
-- Conversation 与 Ticket 双聚合，工单闭环、SLA 计时与超时升级
+- 会话闭环，**会话级** SLA 计时（首响/解决）、预警与超时升级
 - 坐席、技能、队列、排班、容量、Presence
 - 多租户、RBAC、审计、限流、可观测性
 - 服务端多节点，Zenoh 作为事件面，PostgreSQL 作为唯一真相源
+- 会话领域事件单向外发给外部工单/CRM/BI 等通用服务
 
 ### 1.2 非目标（Phase 1 明确不做）
 
-1. **AI Agent Runtime / RAG / Tool Calling / WASI 插件沙箱**——仅留接缝。
-2. **实时音视频媒体流**——视频/音频消息只承载对象存储元数据，不做 WebRTC/MoQ。
-3. **WebTransport 生产落地**——见 1.4，JVM 上不可行，仅留协商位与 SPI。
-4. **全文检索（OpenSearch）**——Phase 1 用 Postgres 全文索引兜底。
-5. **Zenoh 承载强一致状态**——见第 4 章原则。
+1. **工单系统（Ticket / Helpdesk）**——工单是独立的通用服务，**不在本系统**。本系统只单向外发会话事件，不持有工单模型（见第 12.1、12.5 节）。
+2. **AI Agent Runtime / RAG / Tool Calling / WASI 插件沙箱**——仅留接缝。
+3. **实时音视频媒体流**——视频/音频消息只承载对象存储元数据，不做 WebRTC/MoQ。
+4. **WebTransport 生产落地**——见 1.4，JVM 上不可行，仅留协商位与 SPI。
+5. **全文检索（OpenSearch）**——Phase 1 用 Postgres 全文索引兜底。
+6. **Zenoh 承载强一致状态**——见第 4 章原则。
 
 ### 1.3 Rust→Java 等价替换表
 
@@ -148,7 +150,7 @@
               ┌─────────────▼──────────────┐              ┌──────────────▼─────────────┐
               │  IM Data Plane :9443       │              │ Control Plane :8080        │
               │  原生 Vert.x HttpServer     │              │ WebFlux (现有 web-server)   │
-              │  + Router (绕过 WebFlux)    │              │ 管理/配置/报表/工单 CRUD     │
+              │  + Router (绕过 WebFlux)    │              │ 坐席/队列/规则/报表管理       │
               └─────────────┬──────────────┘              └──────────────┬─────────────┘
                             |                                            |
                             +---------------------+----------------------+
@@ -157,7 +159,7 @@
                                                   |
                         ┌─────────────────────────▼─────────────────────────┐
                         │              Application (用例编排)                │
-                        │  Conversation / Message / Dispatch / Ticket / SLA  │
+                        │  Conversation / Message / Dispatch / SLA / Outbox  │
                         └─────────────────────────┬─────────────────────────┘
                                                   |
                      ┌────────────────────────────┼────────────────────────────┐
@@ -297,13 +299,13 @@ com.workoss.cs.domain
 ├── agent          Agent AgentStatus AgentSkill AgentCapacity
 ├── queue          Queue QueueMember
 ├── assignment     Assignment AssignmentStatus
-├── ticket         Ticket(聚合根) TicketStatus TicketArticle TicketTask TicketRelation
 ├── sla            SlaPolicy SlaInstance SlaEvent BusinessCalendar
+├── outbound       OutboundIntegrationEvent OutboundEventType
 ├── shared         TenantId Priority Language Channel AggregateVersion
 └── event          DomainEvent + 各领域事件（见 6.3）
 ```
 
-**聚合边界：** `Conversation` 与 `Ticket` 是**两个独立聚合**，互相只持有对方 ID，跨聚合副作用只经 Outbox（第 12.2 节）。
+**聚合边界：** 本系统只有 `Conversation` 一个会话侧聚合根；`SlaInstance` 挂在会话上但作为独立域对象演进（第 12.2 节）。跨聚合与跨系统副作用一律只经 Outbox。
 
 ### 5.3 cs-transport-core
 
@@ -324,8 +326,8 @@ com.workoss.cs.transport
 CreateConversationUseCase        SendMessageUseCase        RecallMessageUseCase
 AcceptAssignmentUseCase          RejectAssignmentUseCase   TransferConversationUseCase
 CloseConversationUseCase         SyncMessagesUseCase       ChangeAgentStatusUseCase
-CreateTicketUseCase              UpdateTicketUseCase       EscalateTicketUseCase
-ResolveTicketUseCase             StartSlaUseCase           CheckSlaBreachUseCase
+StartSlaUseCase                  PauseSlaUseCase           CheckSlaBreachUseCase
+EscalateConversationUseCase      PublishOutboundEventUseCase
 DispatchConversationUseCase      IssueUploadUrlUseCase
 ```
 
@@ -364,7 +366,6 @@ CONVERSATION_SYNC     (按 seq 拉取补齐)
 AGENT_ACCEPT          AGENT_REJECT            AGENT_STATUS_SET
 TYPING_START          TYPING_STOP
 READ_RECEIPT          HEARTBEAT
-TICKET_CREATE         TICKET_UPDATE           TICKET_COMMENT
 ```
 
 每个 Command 必须回 `ACK`，`ACK` 携带服务端分配的 `seq` 与 `serverTime`。
@@ -377,9 +378,8 @@ CONVERSATION_CREATED  CONVERSATION_ASSIGNED  CONVERSATION_TRANSFERRED  CONVERSAT
 ASSIGNMENT_OFFERED  ASSIGNMENT_ACCEPTED  ASSIGNMENT_REJECTED  ASSIGNMENT_TIMEOUT
 AGENT_STATUS_CHANGED  AGENT_PRESENCE_CHANGED
 DISPATCH_STARTED  DISPATCH_COMPLETED  DISPATCH_FAILED
-TICKET_CREATED  TICKET_ASSIGNED  TICKET_PRIORITY_CHANGED  TICKET_ESCALATED
-TICKET_RESOLVED  TICKET_CLOSED  TICKET_REOPENED
-SLA_STARTED  SLA_WARNING  SLA_BREACH
+CONVERSATION_ESCALATED
+SLA_STARTED  SLA_PAUSED  SLA_RESUMED  SLA_WARNING  SLA_BREACH
 SYSTEM_NOTICE  TYPING  READ_RECEIPT_UPDATED
 ```
 
@@ -545,7 +545,7 @@ Vert.x WebSocket 的写队列是逐连接的，用 `writeQueueFull()` 判定。�
 
 | 消息级别 | 类型 | 策略 |
 |---|---|---|
-| P0 不可丢 | `MESSAGE_CREATED`、`ASSIGNMENT_*`、`TICKET_*`、`SLA_BREACH`、`ACK` | 入连接级有界缓冲（512 条）；缓冲也满 → **主动关连接**，让客户端重连后按 seq 补齐 |
+| P0 不可丢 | `MESSAGE_CREATED`、`ASSIGNMENT_*`、`CONVERSATION_ESCALATED`、`SLA_BREACH`、`ACK` | 入连接级有界缓冲（512 条）；缓冲也满 → **主动关连接**，让客户端重连后按 seq 补齐 |
 | P1 可合并 | `AGENT_STATUS_CHANGED`、`READ_RECEIPT_UPDATED` | 同 key 覆盖式合并，只保留最新 |
 | P2 可丢 | `TYPING`、`presence hint` | 直接丢弃，不计错误 |
 
@@ -581,8 +581,8 @@ SSE 走 `Last-Event-ID` 请求头等价处理。补齐上限 200 条/次，超�
 {root}/cs/{tenantId}/agent/{agentId}/status
 {root}/cs/{tenantId}/agent/{agentId}/assignment
 {root}/cs/{tenantId}/queue/{queueId}/event
-{root}/cs/{tenantId}/ticket/{ticketId}/event
 {root}/cs/{tenantId}/sla/event
+{root}/cs/{tenantId}/integration/outbound
 {root}/cs/{tenantId}/cache/invalidate/{namespace}
 {root}/cs/{tenantId}/system/event
 ```
@@ -759,69 +759,34 @@ PENDING_OFFER ──accept──▶ ACCEPTED ──▶ (Conversation → ACTIVE)
 
 ---
 
-## 12. Ticket、Conversation↔Ticket 关系、SLA 域
+## 12. 会话级 SLA 域与外部工单服务集成
 
-### 12.1 Ticket 状态机
+### 12.1 边界声明：工单不在本系统
 
-```text
-NEW
- │
- ▼
-OPEN ◀──────────────────────────┐
- ├──▶ PENDING ──────────────────┤
- ├──▶ WAITING_CUSTOMER ─────────┤
- ├──▶ WAITING_INTERNAL ─────────┤
- ├──▶ ESCALATED ────────────────┤
- │                              │
- ▼                              │
-RESOLVED ──reopen──▶ REOPENED ──┘
- │
- ▼
-CLOSED
+**工单（Ticket / Helpdesk）是独立的通用服务，不属于本系统。** 本系统是客服 IM 平台，只负责实时沟通、派单与会话闭环。
 
-任意非终态 ──cancel──▶ CANCELLED
-```
+因此本系统**没有**：Ticket 聚合、Ticket 状态机、`ticket*` 数据表、工单 CRUD 接口、工单 SLA、工单自定义字段。
 
-状态集：`NEW | OPEN | PENDING | WAITING_CUSTOMER | WAITING_INTERNAL | ESCALATED | RESOLVED | CLOSED | REOPENED | CANCELLED`
+本系统与工单服务的唯一关系是：**会话中产生的领域事件单向外发**，由工单服务自行决定是否建单、如何建单（第 12.5 节）。
 
-`RESOLVED → CLOSED` 由「客户确认」或「N 天无响应自动关闭」触发。`CLOSED` 是终态，重开必须新建 Ticket 并用 `ticket_relation` 关联（避免终态被反复翻动导致 SLA 无法结算）。
+### 12.2 会话级 SLA 作为独立域
 
-### 12.2 Conversation 与 Ticket 的关系
+源文档把 SLA 挂在工单上。本系统保留的是**会话自己的 SLA 诉求**——首次响应时限与会话解决时限，它们是 IM 的固有指标，与工单无关。
 
-**两个独立聚合，绝不合并为一个对象。**
-
-```text
-Customer
-  ├── Conversation ──┬── Message
-  │                  ├── Attachment
-  │                  └── Assignment
-  └── Ticket ────────┬── TicketArticle
-                     ├── TicketTask
-                     ├── SlaInstance
-                     └── TicketRelation
-```
-
-- 一次 Conversation 可产生多张 Ticket（一次会话里客户问了退款和发票两件事）；
-- 一张 Ticket 可关联多次 Conversation（跨天多次沟通同一问题）；
-- 关联表 `conversation_ticket(tenant_id, conversation_id, ticket_id, link_type)`，`link_type ∈ {ORIGIN, RELATED}`；
-- **跨聚合副作用只经 Outbox**：会话内触发建单 → 同事务写 `ConversationEscalated` 到 outbox → relay 投递 → Ticket 应用侧消费并建单。禁止在一个事务里同时改两个聚合。
-
-### 12.3 SLA 作为独立域
-
-SLA 不是 Ticket 的几个字段，而是独立聚合：
+SLA 仍是独立聚合，不是 Conversation 上的几个字段（否则日历折算、暂停累计、升级链会把会话聚合撑爆）：
 
 ```text
 SlaPolicy
 ├── priority            P1/P2/P3
 ├── businessCalendarId  工作日历
 ├── firstResponseTime   首响时限
-├── resolutionTime      解决时限
+├── resolutionTime      会话解决时限
 ├── warningThreshold    预警阈值（如 80%）
 └── escalationRules     升级规则链
 
 SlaInstance
-├── targetType          CONVERSATION | TICKET
-├── targetId
+├── targetType          CONVERSATION            ← 只有这一种取值
+├── targetId            conversationId
 ├── policyId
 ├── startedAt
 ├── pausedTotalMs       累计暂停时长
@@ -832,37 +797,103 @@ SlaInstance
 └── status              RUNNING | PAUSED | MET | WARNED | BREACHED | CANCELLED
 ```
 
+保留 `targetType` 字段（而不是删掉）是为了让未来接入其他计时对象时不需要改表，但**当前唯一合法取值是 `CONVERSATION`**，由 CHECK 约束强制。
+
 示例策略：
 
-| 优先级 | 首响 | 解决 |
+| 优先级 | 首响 | 会话解决 |
 |---|---|---|
 | P1 | 5 min | 1 h |
 | P2 | 30 min | 4 h |
 | P3 | 4 h | 2 d |
 
-### 12.4 工作日历与暂停语义
+`SlaInstance` 在会话进入 `WAITING`（开始等待派单）时创建，`policyId` 来自派单决策的 `RoutingDecision.slaPolicyId`（第 13.3 节）。
+
+### 12.3 工作日历
 
 ```text
 BusinessCalendar
 ├── timezone
-├── weeklyRules        每周工作时段
+├── weeklyRules       每周工作时段
 ├── holidays          节假日（排除）
 └── specialWorkdays   调休（补入）
 ```
 
-- **`dueAt` 在 SLA 启动时就按日历折算成绝对时刻并落库**，而不是每次检查时现算——否则日历改动会让历史工单的 SLA 结论漂移；
+- **`dueAt` 在 SLA 启动时就按日历折算成绝对时刻并落库**，而不是每次检查时现算——否则日历改动会让历史会话的 SLA 结论漂移；
 - 日历变更只影响之后新建的 `SlaInstance`；
-- `WAITING_CUSTOMER` 状态**暂停** resolution 计时（累加 `pausedTotalMs` 并重算 `resolutionDueAt`），首响计时不暂停；
 - `PAUSED → RUNNING` 时重算 due，写 `sla_event` 审计。
 
-### 12.5 SLA 升级链
+### 12.4 暂停语义：由「待响应方」驱动
+
+源文档把暂停触发条件挂在工单的 `WAITING_CUSTOMER` 状态上。本系统没有工单状态机，因此暂停条件由会话自身携带——**待响应方**（awaiting party）：
+
+```text
+Conversation.awaitingParty ∈ { AGENT, CUSTOMER }
+```
+
+- 该字段在每条消息落库时按 `sender_type` 推导：客户发言 → `AGENT`（等坐席回）；坐席发言 → `CUSTOMER`（等客户回）；
+- **`awaitingParty` 翻转时发领域事件**，SLA 侧消费后决定计时器状态：
+  - `→ CUSTOMER`：resolution 计时**暂停**（累加 `pausedTotalMs` 并重算 `resolutionDueAt`）
+  - `→ AGENT`：resolution 计时**恢复**
+- **首响计时不受暂停影响**：`firstResponseDueAt` 从会话创建起一次算定，坐席首次发言即 `firstRespondedAt`；
+- 该字段是 Conversation 聚合的一部分，与消息插入同事务更新，因此不会出现「消息已存但待响应方没翻转」的中间态。
+
+### 12.5 外部工单服务集成：事件单向外发
+
+**集成方式：单向发事件，不做反向引用。** 本系统不存工单号、不查工单状态、不感知工单模型。
+
+```text
+会话内触发升级/建单诉求
+        │
+        ▼
+同事务写 outbox_event
+        │   aggregate_type = CONVERSATION
+        │   event_type     = ConversationEscalated / ConversationClosed / SlaBreached
+        │   key_expr       = {root}/cs/{tenantId}/integration/outbound
+        ▼
+Outbox Relay
+        ▼
+外部工单服务订阅并自行决定是否建单
+```
+
+外发事件契约（`OutboundIntegrationEvent`）：
+
+```json
+{
+  "eventId": "evt_123",
+  "eventType": "ConversationEscalated",
+  "occurredAt": 1788600000000,
+  "tenantId": "t1",
+  "conversationId": "c100",
+  "customerId": "u100",
+  "channel": "WEB",
+  "category": "ORDER",
+  "priority": 100,
+  "agentId": "a100",
+  "reason": "SLA_BREACH",
+  "transcriptRef": "/api/v1/conversations/c100/messages",
+  "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
+}
+```
+
+设计要点：
+
+- **只给引用不给内容**：`transcriptRef` 是会话记录的拉取地址，事件体内不塞消息正文（避免事件膨胀、避免正文在外部系统留副本）；
+- **at-least-once**，外部服务必须按 `eventId` 去重（与第 15.3 节的 Outbox 语义一致）；
+- 本系统**不等待外部响应**、不因外部失败而回滚会话状态——这是单向集成的核心取舍；
+- 本系统**不提供** `conversation → ticket` 的反查接口。坐席工作台若要展示「本会话关联的工单」，由工单服务侧按 `conversationId` 反查并在工作台前端聚合，**不落库到本系统**；
+- 外发目标（工单服务、CRM、BI）通过 `OutboundIntegration` SPI 扩展，新增下游不改领域层。
+
+### 12.6 SLA 升级链
+
+由于本系统不持有工单，`SLA_BREACH` 的升级动作全部落在**会话聚合自身**，不依赖任何外部工单状态：
 
 ```text
 到达 warningThreshold  ──▶ SLA_WARNING  ──▶ 通知坐席 + 主管
-到达 dueAt 未达成      ──▶ SLA_BREACH   ──▶ Ticket → ESCALATED
-                                          + 提优先级
-                                          + 转升级队列
+到达 dueAt 未达成      ──▶ SLA_BREACH   ──▶ 提升 Conversation.priority
+                                          + 转入升级队列（重新派单给高级坐席）
                                           + 通知主管
+                                          + 外发 ConversationEscalated 事件
 ```
 
 升级动作本身是**领域事件驱动**的，经 Outbox 投递，保证「判定 breach」与「执行升级」解耦、可重放。
@@ -905,7 +936,7 @@ AgentSelector.select()         （接触实时状态）
 {
   "tenant":       {"id": "t1"},
   "customer":     {"id": "u100", "vip": true, "language": "zh-CN",
-                   "tags": ["VIP", "ORDER"], "historyTicketCount": 12},
+                   "tags": ["VIP", "ORDER"], "historyConversationCount": 12},
   "conversation": {"id": "c100", "category": "ORDER", "priority": 80,
                    "channel": "WEB", "firstMessageIntent": "REFUND"},
   "queue":        {"waitingCount": 8, "avgWaitSeconds": 45},
@@ -1011,8 +1042,6 @@ agent  agent_skill  agent_queue  agent_schedule  agent_workload
 queue  queue_member
 conversation  conversation_member  conversation_seq(内联在 conversation)  assignment
 message  message_attachment  message_reaction  message_read_receipt
-ticket  ticket_article  ticket_task  ticket_tag  ticket_relation  ticket_custom_field
-conversation_ticket
 sla_policy  sla_instance  sla_event  business_calendar
 rule_definition  rule_version  rule_shadow_diff
 outbox_event
@@ -1037,6 +1066,8 @@ CREATE TABLE conversation (
     category          VARCHAR(64),
     language          VARCHAR(32),
     channel           VARCHAR(32),
+    awaiting_party    VARCHAR(16)  NOT NULL DEFAULT 'AGENT'
+                      CHECK (awaiting_party IN ('AGENT','CUSTOMER')),
     last_seq          BIGINT      NOT NULL DEFAULT 0,
     created_at        TIMESTAMPTZ NOT NULL,
     assigned_at       TIMESTAMPTZ,
@@ -1149,7 +1180,8 @@ CREATE TABLE sla_instance (
     id                   VARCHAR(64) PRIMARY KEY,
     tenant_id            VARCHAR(64) NOT NULL,
     policy_id            VARCHAR(64) NOT NULL,
-    target_type          VARCHAR(32) NOT NULL,
+    target_type          VARCHAR(32) NOT NULL
+                         CHECK (target_type = 'CONVERSATION'),
     target_id            VARCHAR(64) NOT NULL,
     status               VARCHAR(32) NOT NULL,
     started_at           TIMESTAMPTZ NOT NULL,
@@ -1338,7 +1370,7 @@ cs.datasource.prepared-statement-cache-max-size  默认 512
 |---|---|
 | 热点路径（发消息、取 seq、容量 CAS、Outbox relay） | 原生 `SqlClient` + `preparedQuery`，手写 SQL |
 | 中等复杂、参数命名可读性重要 | `VertxSqlTemplate`（`#{name}` 命名参数，仓库已有） |
-| 复杂动态 SQL（工单列表多条件筛选、报表） | MyBatis，**Mapper 方法签名一律 `Future<T>`** |
+| 复杂动态 SQL（会话列表多条件筛选、坐席工作量报表） | MyBatis，**Mapper 方法签名一律 `Future<T>`** |
 
 **MyBatis 使用铁律：** 只有 `Future<T>` 返回类型的 Mapper 方法走异步；其他返回类型会退化为 `.join()` 阻塞（实测）。因此禁止在客服模块声明非 `Future` 的 Mapper 方法，由 ArchUnit 断言强制。
 
@@ -1416,7 +1448,7 @@ vertx.warning-exception-time      = 5s
 Role ─▶ Permission ─▶ Resource:Action
 ```
 
-权限粒度示例：`conversation:read:own` / `conversation:read:team` / `conversation:read:tenant` / `ticket:escalate` / `rule:publish` / `agent:impersonate`。
+权限粒度示例：`conversation:read:own` / `conversation:read:team` / `conversation:read:tenant` / `conversation:escalate` / `rule:publish` / `agent:impersonate`。
 
 - 数据可见域三级：`own`（自己的会话）/ `team`（所在团队）/ `tenant`（全租户）；
 - 每个查询在 Repository 层强制注入可见域条件，**不允许应用层自行拼**；
@@ -1481,7 +1513,9 @@ cs_assignment_timeout_total / cs_assignment_reject_total
 cs_agent_utilization{agent}                              gauge = active/capacity
 cs_queue_waiting_count{queue}                            gauge
 cs_sla_warned_total / cs_sla_breached_total{policy}
-cs_ticket_status_transition_total{from,to}
+cs_sla_paused_seconds{policy}                            histogram（awaiting=CUSTOMER 累计）
+cs_conversation_escalated_total{reason}
+cs_outbound_integration_total{eventType,result}
 ```
 
 基础设施：
@@ -1627,7 +1661,7 @@ Pod 配置要点：
 
 ### 20.2 Phase 1 明确不做
 
-WebTransport 生产落地 · AI Agent Runtime / RAG / Tool Calling / WASI · WebRTC 音视频 · OpenSearch 全文检索 · Vert.x 集群模式（ClusterManager）· `ZenohLock`/`ZenohCounter` 作为业务强一致原语 · 多语言客户端 SDK · 工单自定义字段的可视化建模器 · CSAT/报表 BI。
+WebTransport 生产落地 · AI Agent Runtime / RAG / Tool Calling / WASI · WebRTC 音视频 · OpenSearch 全文检索 · Vert.x 集群模式（ClusterManager）· `ZenohLock`/`ZenohCounter` 作为业务强一致原语 · 多语言客户端 SDK · **工单系统本体（独立通用服务，本系统只单向外发会话事件，见第 12.1 节）** · CSAT/报表 BI。
 
 ### 20.3 分阶段交付与出场标准
 
@@ -1653,15 +1687,16 @@ WebTransport 生产落地 · AI Agent Runtime / RAG / Tool Calling / WASI · Web
 - 单节点 1 万并发 WebSocket 连接，P99 消息端到端延迟 < 200ms；
 - 强制断开 Zenoh 后 Outbox 堆积，恢复后全部补投成功。
 
-**Phase 2 · 工单与 SLA（3~4 周）**
+**Phase 2 · 会话级 SLA 与外发集成（3~4 周）**
 
-内容：Ticket 聚合与状态机；Conversation↔Ticket 关联；SlaPolicy/SlaInstance/BusinessCalendar；两级定时器；升级链；控制面工单 REST。
+内容：SlaPolicy/SlaInstance/BusinessCalendar；`Conversation.awaitingParty` 与暂停/恢复语义；两级定时器（timer_task + advisory-lock 选主 + 本地 Vert.x timer）；会话升级链；`OutboundIntegration` SPI 与外发通道。
 
 出场标准：
-- 一次会话可产生多张工单，一张工单可关联多次会话，关系查询正确；
-- SLA 首响/解决计时在跨工作时段、节假日、`WAITING_CUSTOMER` 暂停场景下计算正确（用固定日历的黄金用例集断言）；
+- SLA 首响/解决计时在跨工作时段、节假日、`awaitingParty=CUSTOMER` 暂停场景下计算正确（用固定日历的黄金用例集断言）；
+- `awaitingParty` 与消息插入在同一事务内翻转，回放消息流可重建出一致的 `paused_total_ms`；
 - 节点重启后 SLA due 不丢（timer_task 持久化验证）；
-- breach 触发升级链，`sla_event` 审计完整；
+- breach 触发会话升级链（提优先级 + 转升级队列 + 通知主管 + 外发 `ConversationEscalated`），`sla_event` 审计完整；
+- 外发集成事件经 Outbox 至少一次投递，下游重复收取可用 `eventId` 去重；断开下游后事件堆积、恢复后全部补投；
 - 定时器补偿扫描能回收崩溃节点 CLAIMED 的任务。
 
 **Phase 3 · 规则引擎与运营化（3~4 周）**
