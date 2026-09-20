@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.web.reactive.server.ReactiveWebServerFactory;
 
@@ -28,7 +29,8 @@ class VertxWebServerAutoConfigurationTest {
 
     private final ReactiveWebApplicationContextRunner contextRunner = new ReactiveWebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(VertxWebServerAutoConfiguration.class))
-            .withBean(Vertx.class, () -> vertx);
+            .withBean(Vertx.class, () -> vertx)
+            .withBean(ServerProperties.class, ServerProperties::new);
 
     @Test
     void autoConfigurationCreatesFactory() {

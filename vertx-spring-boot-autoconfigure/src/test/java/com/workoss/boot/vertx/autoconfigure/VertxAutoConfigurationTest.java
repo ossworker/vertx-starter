@@ -27,7 +27,7 @@ class VertxAutoConfigurationTest {
         contextRunner.run(context -> {
             VertxOptions options = context.getBean(VertxOptions.class);
             assertThat(options.getWorkerPoolSize()).isEqualTo(20);
-            assertThat(options.getPreferNativeTransport()).isTrue();
+            assertThat(options.getPreferNativeTransport()).isFalse();
         });
     }
 
