@@ -1,259 +1,161 @@
 package com.workoss.boot.vertx.mybatis.core;
 
+import com.workoss.boot.vertx.mybatis.core.batch.VertxBatchBuffer;
+import com.workoss.boot.vertx.mybatis.spring.VertxDataSourceTransactionManager;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import io.vertx.sqlclient.SqlConnection;
-import com.workoss.boot.vertx.mybatis.spring.VertxDataSourceTransactionManager;
-import org.apache.ibatis.cache.CacheKey;
 import org.apache.ibatis.cursor.Cursor;
+import org.apache.ibatis.executor.BaseExecutor;
 import org.apache.ibatis.executor.BatchResult;
 import org.apache.ibatis.executor.Executor;
-import org.apache.ibatis.executor.ExecutorException;
-import org.apache.ibatis.executor.result.DefaultResultContext;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
-import org.apache.ibatis.mapping.ResultMap;
 import org.apache.ibatis.session.Configuration;
+import org.apache.ibatis.session.ExecutorType;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.apache.ibatis.transaction.Transaction;
-import org.apache.ibatis.executor.BaseExecutor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 /**
  * MyBatis {@link Executor} implementation backed by vertx-sql-client.
  * <p>
- * Extends {@link BaseExecutor} to inherit:
- * <ul>
- *   <li>First-level cache (LocalCache) management</li>
- *   <li>Transaction isolation level tracking</li>
- *   <li>Standard query/update flow (cache lookup → delegate to doQuery/doUpdate → cache write)</li>
- * </ul>
+ * Extends {@link BaseExecutor} to inherit first-level cache, transaction tracking and the standard
+ * query/update flow, and so can be wrapped by the MyBatis interceptor chain (PageHelper, etc.).
  * <p>
- * The three abstract methods ({@code doUpdate}, {@code doQuery}, {@code doFlushStatements})
- * delegate SQL execution to vertx-sql-client instead of JDBC.
+ * This class is now a <b>thin synchronous adapter</b>: every {@code doXxx} hook delegates to the
+ * shared {@link VertxExecutionEngine} and blocks at {@link VertxExecutionEngine#block(Future)} — the
+ * single, event-loop-guarded blocking boundary. The engine, not this class, owns SQL resolution,
+ * dialect pagination, row mapping and connection/transaction selection.
  * <p>
- * Plugin compatibility: Since BaseExecutor implements {@link Executor}, the
- * {@code InterceptorChain.pluginAll(executor)} wraps this executor via JDK proxy,
- * allowing all Executor-level interceptors (PageHelper, PerformanceInterceptor, etc.)
- * to work transparently.
+ * Async ({@code Future}) execution no longer lives here; {@link VertxSqlSession} and the mapper proxy
+ * call the engine directly, so the async path never blocks.
  */
 public class VertxExecutor extends BaseExecutor {
 
-    private static final Logger logger = LoggerFactory.getLogger(VertxExecutor.class);
-
     private final Pool pool;
     private final VertxTransaction vertxTransaction;
-    private final SqlResolver sqlResolver;
-    private final VertxRowMapper rowMapper;
+    private final VertxExecutionEngine engine;
+    private final ExecutorType executorType;
+    private final VertxBatchBuffer batchBuffer = new VertxBatchBuffer();
 
-    public VertxExecutor(Configuration configuration, Transaction transaction,
-                         Pool pool, VertxTransaction vertxTransaction,
-                         SqlResolver sqlResolver, VertxRowMapper rowMapper) {
+    public VertxExecutor(Configuration configuration, Transaction transaction, Pool pool,
+                         VertxTransaction vertxTransaction, VertxExecutionEngine engine,
+                         ExecutorType executorType) {
         super(configuration, transaction);
         this.pool = pool;
         this.vertxTransaction = vertxTransaction;
-        this.sqlResolver = sqlResolver;
-        this.rowMapper = rowMapper;
+        this.engine = engine;
+        this.executorType = executorType != null ? executorType : ExecutorType.SIMPLE;
     }
 
-    // ===== Synchronous methods (called by BaseExecutor through interceptor chain) =====
+    /** The shared non-blocking engine this executor delegates to (used by the async session path). */
+    public VertxExecutionEngine getEngine() {
+        return engine;
+    }
+
+    /** The batch buffer accumulated by this executor ({@link ExecutorType#BATCH} sessions). */
+    public VertxBatchBuffer getBatchBuffer() {
+        return batchBuffer;
+    }
+
+    // ===== Synchronous BaseExecutor hooks (blocking boundary) =====
 
     @Override
     protected int doUpdate(MappedStatement ms, Object parameter) throws SQLException {
-        SqlAndParams sqlAndParams = sqlResolver.resolve(ms, parameter);
-        SqlClient client = getSqlClient();
-
-        // Ensure transaction is started for write operations (skip if Spring manages the tx)
+        // Manual (non-Spring) transaction: make sure a tx is begun. Blocking is acceptable here —
+        // this is the synchronous API, which must not run on an event loop (guarded by engine.block).
         if (VertxDataSourceTransactionManager.getCurrentConnection(pool) == null) {
             vertxTransaction.ensureTransaction();
         }
-
+        VertxBatchBuffer buffer = executorType == ExecutorType.BATCH ? batchBuffer : null;
         try {
-            RowSet<Row> result = client.preparedQuery(sqlAndParams.sql())
-                    .execute(sqlAndParams.tuple())
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .join();
-            return result.rowCount();
-        } catch (Exception e) {
-            throw unwrapSqlException(e);
+            Integer rows = engine.block(engine.update(ms, parameter, getSqlClient(), buffer));
+            return rows != null ? rows : 0;
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw engine.unwrapSqlException(e);
         }
     }
 
     @Override
-    @SuppressWarnings("unchecked")
-    protected <E> List<E> doQuery(MappedStatement ms, Object parameter,
-                                  RowBounds rowBounds, ResultHandler resultHandler,
-                                  BoundSql boundSql) throws SQLException {
-        SqlAndParams sqlAndParams = sqlResolver.resolve(ms, parameter);
-        String sql = applyRowBounds(sqlAndParams.sql(), rowBounds);
-        SqlClient client = getSqlClient();
-
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    protected <E> List<E> doQuery(MappedStatement ms, Object parameter, RowBounds rowBounds,
+                                  ResultHandler resultHandler, BoundSql boundSql) throws SQLException {
+        // Re-type the raw handler so the generic engine call is not erased to a raw invocation.
+        ResultHandler<E> handler = resultHandler;
         try {
-            RowSet<Row> rowSet = client.preparedQuery(sql)
-                    .execute(sqlAndParams.tuple())
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .join();
+            return engine.block(engine.query(ms, parameter, rowBounds, handler, getSqlClient()));
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw engine.unwrapSqlException(e);
+        }
+    }
 
-            List<ResultMap> resultMaps = ms.getResultMaps();
-            ResultMap resultMap = resultMaps.isEmpty() ? null : resultMaps.get(0);
-
-            if (resultHandler != null) {
-                rowMapper.mapResultsWithHandler(rowSet, resultHandler, resultMap);
-                return Collections.emptyList();
-            }
-
-            return rowMapper.mapResults(rowSet, resultMap);
-        } catch (Exception e) {
-            throw unwrapSqlException(e);
+    @Override
+    protected <E> Cursor<E> doQueryCursor(MappedStatement ms, Object parameter, RowBounds rowBounds,
+                                          BoundSql boundSql) throws SQLException {
+        try {
+            return engine.block(engine.queryCursor(ms, parameter, rowBounds, getSqlClient()));
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw engine.unwrapSqlException(e);
         }
     }
 
     @Override
     protected List<BatchResult> doFlushStatements(boolean isRollback) throws SQLException {
-        // vertx-sql-client batch operations are handled separately via executeBatch
-        return Collections.emptyList();
-    }
-
-    @Override
-    protected <E> Cursor<E> doQueryCursor(MappedStatement ms, Object parameter,
-                                         RowBounds rowBounds, BoundSql boundSql) throws SQLException {
-        SqlAndParams sqlAndParams = sqlResolver.resolve(ms, parameter);
-        String sql = applyRowBounds(sqlAndParams.sql(), rowBounds);
-        SqlClient client = getSqlClient();
-
-        try {
-            RowSet<Row> rowSet = client.preparedQuery(sql)
-                    .execute(sqlAndParams.tuple())
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .join();
-
-            List<ResultMap> resultMaps = ms.getResultMaps();
-            ResultMap resultMap = resultMaps.isEmpty() ? null : resultMaps.get(0);
-            List<E> results = rowMapper.mapResults(rowSet, resultMap);
-            return new VertxCursor<>(results);
-        } catch (Exception e) {
-            throw unwrapSqlException(e);
+        if (isRollback) {
+            batchBuffer.clear();
+            return Collections.emptyList();
         }
-    }
-
-    // ===== Async methods (bypass BaseExecutor cache and interceptor chain) =====
-
-    /**
-     * Async query — returns Future, does not use first-level cache.
-     * Called directly by VertxSqlSession for Future-returning mapper methods.
-     */
-    @SuppressWarnings("unchecked")
-    public <E> Future<List<E>> doQueryAsync(MappedStatement ms, Object parameter, RowBounds rowBounds) {
         try {
-            SqlAndParams sqlAndParams = sqlResolver.resolve(ms, parameter);
-            String sql = applyRowBounds(sqlAndParams.sql(), rowBounds);
-            SqlClient client = getSqlClient();
-
-            return client.preparedQuery(sql)
-                    .execute(sqlAndParams.tuple())
-                    .map(rowSet -> {
-                        List<ResultMap> resultMaps = ms.getResultMaps();
-                        ResultMap resultMap = resultMaps.isEmpty() ? null : resultMaps.get(0);
-                        return rowMapper.<E>mapResults(rowSet, resultMap);
-                    });
-        } catch (Exception e) {
-            return Future.failedFuture(e);
+            return engine.block(engine.flush(batchBuffer, getSqlClient()));
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw engine.unwrapSqlException(e);
         }
     }
 
     /**
-     * Async update — returns Future, bypasses first-level cache.
-     */
-    public Future<Integer> doUpdateAsync(MappedStatement ms, Object parameter) {
-        try {
-            SqlAndParams sqlAndParams = sqlResolver.resolve(ms, parameter);
-            SqlClient client = getSqlClient();
-
-            // Ensure transaction for write operations (skip if Spring manages the tx)
-            if (VertxDataSourceTransactionManager.getCurrentConnection(pool) == null) {
-                vertxTransaction.ensureTransaction();
-            }
-
-            return client.preparedQuery(sqlAndParams.sql())
-                    .execute(sqlAndParams.tuple())
-                    .map(RowSet::rowCount);
-        } catch (Exception e) {
-            return Future.failedFuture(e);
-        }
-    }
-
-    // ===== Utility methods =====
-
-    /**
-     * Get the appropriate SqlClient: 
-     * 1. Spring-managed transactional connection (via @Transactional)
-     * 2. VertxTransaction's SqlConnection (manual transaction)
-     * 3. Pool (auto-manages connections per query)
+     * Resolve the client for the synchronous path: blocking Spring transaction → this session's
+     * manual {@link VertxTransaction} connection → pool.
      */
     private SqlClient getSqlClient() {
-        // Check Spring transaction context first
         SqlConnection springConn = VertxDataSourceTransactionManager.getCurrentConnection(pool);
         if (springConn != null) {
             return springConn;
         }
-        // Then check VertxTransaction
         SqlConnection conn = vertxTransaction.getSqlConnection();
         return conn != null ? conn : pool;
     }
 
+    // ===== Deprecated async delegators (kept for source compatibility) =====
+
     /**
-     * Apply RowBounds pagination by appending LIMIT/OFFSET to the SQL.
-     * In production, users typically use interceptors (e.g. PageHelper) instead.
+     * @deprecated the async path now lives in {@link VertxExecutionEngine}; use
+     *             {@link VertxSqlSession#selectListAsync} or the engine directly.
      */
-    private String applyRowBounds(String sql, RowBounds rowBounds) {
-        if (rowBounds == null || rowBounds == RowBounds.DEFAULT) {
-            return sql;
-        }
-
-        StringBuilder sb = new StringBuilder(sql);
-        boolean needsPaging = false;
-
-        if (rowBounds.getOffset() > 0) {
-            sb.append(" OFFSET ").append(rowBounds.getOffset());
-            needsPaging = true;
-        }
-        if (rowBounds.getLimit() < RowBounds.NO_ROW_LIMIT) {
-            // Insert LIMIT before OFFSET if offset was already appended
-            if (needsPaging) {
-                int offsetIdx = sb.indexOf(" OFFSET ");
-                sb.insert(offsetIdx, " LIMIT " + rowBounds.getLimit());
-            } else {
-                sb.append(" LIMIT ").append(rowBounds.getLimit());
-            }
-        }
-
-        return sb.toString();
+    @Deprecated
+    public <E> Future<List<E>> doQueryAsync(MappedStatement ms, Object parameter, RowBounds rowBounds) {
+        return engine.query(ms, parameter, rowBounds, null, vertxTransaction.getSqlConnection());
     }
 
     /**
-     * Unwrap exceptions from CompletableFuture.join() to produce clean SQLExceptions.
+     * @deprecated the async path now lives in {@link VertxExecutionEngine}; use
+     *             {@link VertxSqlSession#updateAsync} or the engine directly.
      */
-    private SQLException unwrapSqlException(Exception e) {
-        Throwable cause = e;
-        if (e instanceof java.util.concurrent.CompletionException && e.getCause() != null) {
-            cause = e.getCause();
-        }
-        if (cause instanceof SQLException se) {
-            return se;
-        }
-        return new SQLException("SQL execution failed: " + cause.getMessage(), cause);
+    @Deprecated
+    public Future<Integer> doUpdateAsync(MappedStatement ms, Object parameter) {
+        return engine.update(ms, parameter, vertxTransaction.getSqlConnection());
     }
 }

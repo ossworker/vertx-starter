@@ -1,5 +1,9 @@
 package com.workoss.boot.vertx.mybatis.core;
 
+import com.workoss.boot.vertx.mybatis.dialect.DialectResolver;
+import com.workoss.boot.vertx.mybatis.dialect.SqlDialect;
+import com.workoss.boot.vertx.mybatis.typehandler.VertxTypeHandler;
+import com.workoss.boot.vertx.mybatis.typehandler.VertxTypeHandlerBridge;
 import io.vertx.sqlclient.Tuple;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
@@ -20,8 +24,6 @@ import java.time.OffsetDateTime;
 import java.time.OffsetTime;
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Resolves MyBatis {@link BoundSql} into an executable SQL string and
@@ -41,7 +43,11 @@ public class SqlResolver {
 
     /**
      * Database dialect controlling placeholder style.
+     *
+     * @deprecated use the {@link SqlDialect} SPI ({@link #setSqlDialect(SqlDialect)}).
+     *             Retained as a compatibility shim; each constant maps to a built-in dialect.
      */
+    @Deprecated
     public enum Dialect {
         /** MySQL / MariaDB / DB2: keep {@code ?} */
         MYSQL,
@@ -56,7 +62,12 @@ public class SqlResolver {
     }
 
     private final Configuration configuration;
+    /** Deprecated enum view, kept in sync with {@link #sqlDialect} for the legacy API. */
     private volatile Dialect dialect = Dialect.AUTO;
+    /** Authoritative dialect; {@code null} means "no placeholder rewriting" (AUTO/MySQL). */
+    private volatile SqlDialect sqlDialect;
+    /** Bridges JDBC-shaped MyBatis TypeHandlers onto vertx-sql-client values. */
+    private volatile VertxTypeHandlerBridge typeHandlerBridge = new VertxTypeHandlerBridge();
 
     public SqlResolver(Configuration configuration) {
         this.configuration = configuration;
@@ -64,15 +75,64 @@ public class SqlResolver {
 
     public SqlResolver(Configuration configuration, Dialect dialect) {
         this.configuration = configuration;
-        this.dialect = dialect;
+        setDialect(dialect);
     }
 
+    public SqlResolver(Configuration configuration, SqlDialect sqlDialect) {
+        this.configuration = configuration;
+        setSqlDialect(sqlDialect);
+    }
+
+    /**
+     * @deprecated use {@link #setSqlDialect(SqlDialect)}.
+     */
+    @Deprecated
     public void setDialect(Dialect dialect) {
-        this.dialect = dialect;
+        this.dialect = dialect != null ? dialect : Dialect.AUTO;
+        this.sqlDialect = toSqlDialect(this.dialect);
     }
 
+    /**
+     * @deprecated use {@link #getSqlDialect()}.
+     */
+    @Deprecated
     public Dialect getDialect() {
         return dialect;
+    }
+
+    /** Set the authoritative dialect SPI. Also updates the deprecated enum view best-effort. */
+    public void setSqlDialect(SqlDialect sqlDialect) {
+        this.sqlDialect = sqlDialect;
+        if (sqlDialect != null) {
+            this.dialect = fromSqlDialect(sqlDialect);
+        }
+    }
+
+    /** The authoritative dialect; may be {@code null} (no placeholder rewriting). */
+    public SqlDialect getSqlDialect() {
+        return sqlDialect;
+    }
+
+    private static SqlDialect toSqlDialect(Dialect d) {
+        return switch (d) {
+            case MYSQL -> DialectResolver.byName("MYSQL");
+            case POSTGRESQL -> DialectResolver.byName("POSTGRESQL");
+            case MSSQL -> DialectResolver.byName("MSSQL");
+            case DB2 -> DialectResolver.byName("DB2");
+            case AUTO -> null;
+        };
+    }
+
+    private static Dialect fromSqlDialect(SqlDialect sqlDialect) {
+        Dialect resolved = DialectResolver.byName(sqlDialect.name()) != null
+                ? switch (sqlDialect.name().toUpperCase(java.util.Locale.ROOT)) {
+            case "POSTGRESQL" -> Dialect.POSTGRESQL;
+            case "MSSQL" -> Dialect.MSSQL;
+            case "DB2" -> Dialect.DB2;
+            default -> Dialect.MYSQL;
+        }
+                : Dialect.MYSQL;
+        return resolved;
     }
 
     /**
@@ -93,12 +153,13 @@ public class SqlResolver {
                 }
 
                 Object value = resolveParameterValue(mapping, boundSql, parameter);
-                tuple.addValue(convertToSqlValue(value, mapping));
+                tuple.addValue(bindValue(mapping, value));
             }
         }
 
         // Convert placeholders based on dialect
-        String resolvedSql = convertPlaceholders(sql);
+        SqlDialect d = this.sqlDialect;
+        String resolvedSql = d != null ? d.rewritePlaceholders(sql) : sql;
 
         return new SqlAndParams(resolvedSql, tuple, ms.getSqlCommandType());
     }
@@ -129,7 +190,41 @@ public class SqlResolver {
     }
 
     /**
-     * Convert a Java value to a vertx-sql-client compatible value.
+     * Bind a parameter value, honouring the MyBatis {@link TypeHandler} configured on the mapping.
+     * <p>
+     * Precedence: native {@link VertxTypeHandler} SPI → JDBC {@link TypeHandler} adapted through
+     * {@link VertxTypeHandlerBridge} → {@link #convertToSqlValue legacy conversion} fallback.
+     */
+    @SuppressWarnings("unchecked")
+    private Object bindValue(ParameterMapping mapping, Object value) {
+        if (value == null) {
+            return null;
+        }
+        TypeHandler<?> handler = mapping.getTypeHandler();
+        if (handler instanceof VertxTypeHandler) {
+            return ((VertxTypeHandler<Object>) handler).toSqlValue(value);
+        }
+        if (handler != null) {
+            Object converted = typeHandlerBridge.tryWrite(handler, value, mapping.getJdbcType());
+            if (converted != VertxTypeHandlerBridge.FALLBACK) {
+                return converted;
+            }
+        }
+        return convertToSqlValue(value, mapping);
+    }
+
+    public VertxTypeHandlerBridge getTypeHandlerBridge() {
+        return typeHandlerBridge;
+    }
+
+    public void setTypeHandlerBridge(VertxTypeHandlerBridge typeHandlerBridge) {
+        this.typeHandlerBridge = typeHandlerBridge != null
+                ? typeHandlerBridge : new VertxTypeHandlerBridge();
+    }
+
+    /**
+     * Legacy value conversion, used as the fallback when no TypeHandler applies or the handler
+     * cannot be adapted to vertx-sql-client.
      * <p>
      * vertx-sql-client Tuple accepts: null, String, Boolean, Short, Integer, Long, Float, Double,
      * BigDecimal, byte[], LocalDate, LocalTime, LocalDateTime, OffsetTime, OffsetDateTime, UUID,
@@ -204,44 +299,5 @@ public class SqlResolver {
 
         // Last resort: toString()
         return value.toString();
-    }
-
-    // Pattern to match ? placeholders that are NOT inside string literals
-    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\?");
-
-    /**
-     * Convert MyBatis-style {@code ?} placeholders to the target dialect's format.
-     */
-    private String convertPlaceholders(String sql) {
-        Dialect d = this.dialect;
-        if (d == Dialect.AUTO || d == Dialect.MYSQL || d == Dialect.DB2) {
-            return sql; // MySQL/DB2 use ? natively
-        }
-
-        // Need to replace ? with $n (PostgreSQL) or @pn (MSSQL)
-        // But must NOT replace ? inside string literals ('...')
-        StringBuilder result = new StringBuilder(sql.length() + 16);
-        int paramIndex = 0;
-        boolean insideStringLiteral = false;
-
-        for (int i = 0; i < sql.length(); i++) {
-            char c = sql.charAt(i);
-
-            if (c == '\'') {
-                insideStringLiteral = !insideStringLiteral;
-                result.append(c);
-            } else if (c == '?' && !insideStringLiteral) {
-                paramIndex++;
-                if (d == Dialect.POSTGRESQL) {
-                    result.append('$').append(paramIndex);
-                } else if (d == Dialect.MSSQL) {
-                    result.append("@p").append(paramIndex);
-                }
-            } else {
-                result.append(c);
-            }
-        }
-
-        return result.toString();
     }
 }

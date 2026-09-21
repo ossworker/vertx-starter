@@ -1,7 +1,10 @@
 package com.workoss.boot.vertx.mybatis.mapper;
 
+import com.workoss.boot.vertx.mybatis.core.VertxExecutionEngine;
 import com.workoss.boot.vertx.mybatis.core.VertxSqlSession;
+import com.workoss.boot.vertx.mybatis.core.VertxSqlSessionFactory;
 import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 
 import java.lang.reflect.Proxy;
@@ -58,8 +61,11 @@ public class VertxMapperFactoryBean<T> extends MapperFactoryBean<T> {
     @Override
     public T getObject() throws Exception {
         SqlSession session = getSqlSession();
+        SqlSessionFactory factory = getSqlSessionFactory();
+        VertxExecutionEngine engine = factory instanceof VertxSqlSessionFactory vertxFactory
+                ? vertxFactory.getEngine() : null;
         VertxMapperProxy<T> handler = new VertxMapperProxy<>(
-                session, getMapperInterface(), methodCache, getSqlSessionFactory());
+                session, getMapperInterface(), methodCache, engine);
         @SuppressWarnings("unchecked")
         T proxy = (T) Proxy.newProxyInstance(
                 getMapperInterface().getClassLoader(),

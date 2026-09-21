@@ -1,12 +1,19 @@
 package com.workoss.boot.vertx.mybatis.config;
 
 import com.workoss.boot.vertx.autoconfigure.VertxAutoConfiguration;
+import com.workoss.boot.vertx.mybatis.core.DefaultSqlConnectionResolver;
+import com.workoss.boot.vertx.mybatis.core.SqlConnectionResolver;
 import com.workoss.boot.vertx.mybatis.core.SqlResolver;
+import com.workoss.boot.vertx.mybatis.core.VertxExecutionEngine;
 import com.workoss.boot.vertx.mybatis.core.VertxRowMapper;
 import com.workoss.boot.vertx.mybatis.core.VertxSqlSessionFactory;
 import com.workoss.boot.vertx.mybatis.core.VertxSqlSessionManager;
+import com.workoss.boot.vertx.mybatis.dialect.DialectResolver;
+import com.workoss.boot.vertx.mybatis.dialect.SqlDialect;
+import com.workoss.boot.vertx.mybatis.reactive.VertxReactiveTransactionManager;
 import com.workoss.boot.vertx.mybatis.spring.VertxDataSourceTransactionManager;
 import com.workoss.boot.vertx.mybatis.template.VertxSqlTemplate;
+import com.workoss.boot.vertx.mybatis.typehandler.VertxTypeHandlerBridge;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.templates.SqlTemplate;
 import org.apache.ibatis.builder.xml.XMLConfigBuilder;
@@ -26,10 +33,13 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.Resource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.ReactiveTransactionManager;
+import reactor.core.publisher.Mono;
 
 import java.io.InputStream;
 import java.util.List;
@@ -78,20 +88,48 @@ public class VertxMybatisAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SqlResolver sqlResolver(Configuration mybatisConfiguration, VertxMybatisProperties properties) {
-        SqlResolver.Dialect dialect;
-        try {
-            dialect = SqlResolver.Dialect.valueOf(properties.getDialect().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            dialect = SqlResolver.Dialect.AUTO;
-        }
-        return new SqlResolver(mybatisConfiguration, dialect);
+    public VertxTypeHandlerBridge vertxTypeHandlerBridge() {
+        return new VertxTypeHandlerBridge();
     }
 
     @Bean
     @ConditionalOnMissingBean
-    public VertxRowMapper vertxRowMapper(Configuration mybatisConfiguration) {
-        return new VertxRowMapper(mybatisConfiguration);
+    public SqlDialect sqlDialect(Pool pool, VertxMybatisProperties properties) {
+        return DialectResolver.resolve(properties.getDialect(), pool);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SqlConnectionResolver sqlConnectionResolver() {
+        return new DefaultSqlConnectionResolver();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SqlResolver sqlResolver(Configuration mybatisConfiguration, SqlDialect sqlDialect,
+                                   VertxTypeHandlerBridge typeHandlerBridge) {
+        SqlResolver resolver = new SqlResolver(mybatisConfiguration, sqlDialect);
+        resolver.setTypeHandlerBridge(typeHandlerBridge);
+        return resolver;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public VertxRowMapper vertxRowMapper(Configuration mybatisConfiguration,
+                                         VertxTypeHandlerBridge typeHandlerBridge) {
+        VertxRowMapper rowMapper = new VertxRowMapper(mybatisConfiguration);
+        rowMapper.setTypeHandlerBridge(typeHandlerBridge);
+        return rowMapper;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public VertxExecutionEngine vertxExecutionEngine(Pool pool, SqlResolver sqlResolver,
+                                                     VertxRowMapper rowMapper,
+                                                     SqlConnectionResolver connectionResolver,
+                                                     SqlDialect sqlDialect) {
+        logger.info("Creating VertxExecutionEngine (dialect={})", sqlDialect.name());
+        return new VertxExecutionEngine(pool, sqlResolver, rowMapper, connectionResolver, sqlDialect);
     }
 
     @Bean
@@ -176,9 +214,9 @@ public class VertxMybatisAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(SqlSessionFactory.class)
     public SqlSessionFactory sqlSessionFactory(Configuration mybatisConfiguration, Pool pool,
-                                               SqlResolver sqlResolver, VertxRowMapper rowMapper) {
+                                               VertxExecutionEngine engine) {
         logger.info("Creating VertxSqlSessionFactory");
-        return new VertxSqlSessionFactory(mybatisConfiguration, pool, sqlResolver, rowMapper);
+        return new VertxSqlSessionFactory(mybatisConfiguration, pool, engine);
     }
 
     /**
@@ -206,15 +244,38 @@ public class VertxMybatisAutoConfiguration {
     @ConditionalOnMissingBean(PlatformTransactionManager.class)
     @ConditionalOnClass(PlatformTransactionManager.class)
     public VertxDataSourceTransactionManager vertxTransactionManager(Pool pool) {
-        logger.info("Creating VertxDataSourceTransactionManager for @Transactional support");
+        logger.info("Creating VertxDataSourceTransactionManager for blocking @Transactional support");
         return new VertxDataSourceTransactionManager(pool);
     }
 
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnClass(SqlTemplate.class)
-    public VertxSqlTemplate vertxSqlTemplate(Pool pool) {
+    public VertxSqlTemplate vertxSqlTemplate(Pool pool, SqlConnectionResolver connectionResolver) {
         logger.info("Creating VertxSqlTemplate for named-parameter SQL template support");
-        return new VertxSqlTemplate(pool);
+        return new VertxSqlTemplate(pool, connectionResolver);
+    }
+
+    /**
+     * Fully reactive transaction support, isolated in a nested configuration so that the outer
+     * auto-configuration loads even when {@code spring-tx}'s reactive API or {@code reactor-core}
+     * are absent (both are optional dependencies).
+     * <p>
+     * Uses its own {@code @ConditionalOnMissingBean(ReactiveTransactionManager.class)}, so it never
+     * suppresses — nor is suppressed by — the blocking {@link VertxDataSourceTransactionManager}
+     * (which is keyed on {@code PlatformTransactionManager}).
+     */
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @ConditionalOnClass({ReactiveTransactionManager.class, Mono.class})
+    @ConditionalOnProperty(prefix = "vertx.mybatis", name = "reactive-transactions-enabled",
+            havingValue = "true", matchIfMissing = true)
+    static class ReactiveTransactionConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean(ReactiveTransactionManager.class)
+        public VertxReactiveTransactionManager vertxReactiveTransactionManager(Pool pool) {
+            logger.info("Creating VertxReactiveTransactionManager for reactive @Transactional support");
+            return new VertxReactiveTransactionManager(pool);
+        }
     }
 }

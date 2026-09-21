@@ -1,6 +1,7 @@
 package com.workoss.boot.vertx.mybatis.core;
 
 import io.vertx.core.Future;
+import io.vertx.sqlclient.SqlClient;
 import org.apache.ibatis.cursor.Cursor;
 import org.apache.ibatis.exceptions.PersistenceException;
 import org.apache.ibatis.exceptions.TooManyResultsException;
@@ -32,8 +33,10 @@ public class VertxSqlSession implements SqlSession {
     private final Configuration configuration;
     /** Executor after interceptor chain wrapping (for sync methods) */
     private final Executor executor;
-    /** Original VertxExecutor instance (for async methods) */
+    /** Original VertxExecutor instance (owns the batch buffer and the shared engine) */
     private final VertxExecutor vertxExecutor;
+    /** Shared non-blocking engine used directly by the async methods */
+    private final VertxExecutionEngine engine;
     private final VertxTransaction vertxTransaction;
     private final boolean autoCommit;
     private boolean dirty = false;
@@ -45,6 +48,7 @@ public class VertxSqlSession implements SqlSession {
         this.configuration = configuration;
         this.executor = executor;
         this.vertxExecutor = vertxExecutor;
+        this.engine = vertxExecutor != null ? vertxExecutor.getEngine() : null;
         this.vertxTransaction = vertxTransaction;
         this.autoCommit = autoCommit;
     }
@@ -199,7 +203,12 @@ public class VertxSqlSession implements SqlSession {
         }
     }
 
-    // ===== Async methods (bypass interceptor chain and cache) =====
+    // ===== Async methods (non-blocking, funnel through the shared engine) =====
+    //
+    // These bypass the interceptor chain and first-level cache for maximum throughput. Connection
+    // selection is delegated to the engine's SqlConnectionResolver (reactive tx -> blocking Spring
+    // tx -> pool); when this session was opened manually and already holds a connection, that
+    // connection is passed explicitly so the async call participates in the same transaction.
 
     public <T> Future<T> selectOneAsync(String statement) {
         return selectOneAsync(statement, null);
@@ -227,7 +236,7 @@ public class VertxSqlSession implements SqlSession {
 
     public <E> Future<List<E>> selectListAsync(String statement, Object parameter, RowBounds rowBounds) {
         MappedStatement ms = configuration.getMappedStatement(statement);
-        return vertxExecutor.doQueryAsync(ms, wrapCollection(parameter), rowBounds);
+        return engine.query(ms, wrapCollection(parameter), rowBounds, null, sessionClient());
     }
 
     public Future<Integer> insertAsync(String statement) {
@@ -245,7 +254,7 @@ public class VertxSqlSession implements SqlSession {
     public Future<Integer> updateAsync(String statement, Object parameter) {
         dirty = true;
         MappedStatement ms = configuration.getMappedStatement(statement);
-        return vertxExecutor.doUpdateAsync(ms, wrapCollection(parameter));
+        return engine.update(ms, wrapCollection(parameter), sessionClient());
     }
 
     public Future<Integer> deleteAsync(String statement) {
@@ -254,6 +263,22 @@ public class VertxSqlSession implements SqlSession {
 
     public Future<Integer> deleteAsync(String statement, Object parameter) {
         return updateAsync(statement, parameter);
+    }
+
+    /**
+     * Flush any statements buffered by this session's {@link org.apache.ibatis.session.ExecutorType#BATCH}
+     * executor, asynchronously. Returns an empty list when nothing is buffered.
+     */
+    public Future<List<BatchResult>> flushAsync() {
+        return engine.flush(vertxExecutor.getBatchBuffer(), sessionClient());
+    }
+
+    /**
+     * The connection this manually-opened session already holds, or {@code null} to let the engine
+     * resolve one (reactive transaction, blocking Spring transaction, or the pool).
+     */
+    private SqlClient sessionClient() {
+        return vertxTransaction != null ? vertxTransaction.getSqlConnection() : null;
     }
 
     // ===== Transaction management =====

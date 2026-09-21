@@ -1,22 +1,22 @@
 package com.workoss.boot.vertx.mybatis.mapper;
 
-import com.workoss.boot.vertx.mybatis.core.VertxSqlSession;
+import com.workoss.boot.vertx.mybatis.core.VertxExecutionEngine;
+import com.workoss.boot.vertx.mybatis.core.VertxSqlSessionFactory;
 import io.vertx.core.Future;
 import org.apache.ibatis.binding.BindingException;
+import org.apache.ibatis.mapping.MappedStatement;
+import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.session.RowBounds;
 import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 
-import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Enhanced {@link InvocationHandler} for MyBatis mapper proxies.
@@ -30,11 +30,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * The sync path delegates to the injected {@link SqlSession}, which may be a
  * {@link org.mybatis.spring.SqlSessionTemplate} (thread-safe, auto-managed)
- * or a raw {@link VertxSqlSession}.
+ * or a raw {@link com.workoss.boot.vertx.mybatis.core.VertxSqlSession}.
  * <p>
- * The async path opens a new session from {@link SqlSessionFactory} to obtain a
- * {@link VertxSqlSession} directly, bypassing the interceptor chain and first-level
- * cache for maximum throughput.
+ * The async path calls the shared, thread-safe {@link VertxExecutionEngine} directly — no session is
+ * opened per call, nothing blocks, and connection/transaction selection is delegated to the engine's
+ * {@link com.workoss.boot.vertx.mybatis.core.SqlConnectionResolver} (reactive transaction → blocking
+ * Spring transaction → pool). It bypasses the interceptor chain and first-level cache for throughput.
  * <p>
  * Also supports interface default methods and Object methods (toString, hashCode, equals).
  */
@@ -43,15 +44,33 @@ public class VertxMapperProxy<T> implements InvocationHandler {
     private final SqlSession sqlSession;
     private final Class<T> mapperInterface;
     private final Map<Method, MapperMethodInfo> methodCache;
-    private final SqlSessionFactory sqlSessionFactory;
+    private final VertxExecutionEngine engine;
 
+    /**
+     * Preferred constructor: the async path runs against the shared {@link VertxExecutionEngine}.
+     *
+     * @param engine the shared engine; when {@code null}, {@code Future}-returning mapper methods fail
+     */
     public VertxMapperProxy(SqlSession sqlSession, Class<T> mapperInterface,
                             Map<Method, MapperMethodInfo> methodCache,
-                            SqlSessionFactory sqlSessionFactory) {
+                            VertxExecutionEngine engine) {
         this.sqlSession = sqlSession;
         this.mapperInterface = mapperInterface;
         this.methodCache = methodCache;
-        this.sqlSessionFactory = sqlSessionFactory;
+        this.engine = engine;
+    }
+
+    /**
+     * @deprecated use {@link #VertxMapperProxy(SqlSession, Class, Map, VertxExecutionEngine)}. The
+     *             engine is derived from {@code sqlSessionFactory} when it is a
+     *             {@link VertxSqlSessionFactory}; otherwise async mapper methods are unsupported.
+     */
+    @Deprecated
+    public VertxMapperProxy(SqlSession sqlSession, Class<T> mapperInterface,
+                            Map<Method, MapperMethodInfo> methodCache,
+                            SqlSessionFactory sqlSessionFactory) {
+        this(sqlSession, mapperInterface, methodCache,
+                sqlSessionFactory instanceof VertxSqlSessionFactory f ? f.getEngine() : null);
     }
 
     @Override
@@ -79,61 +98,51 @@ public class VertxMapperProxy<T> implements InvocationHandler {
     }
 
     /**
-     * Execute via async path — returns {@link Future}.
-     * Opens a new VertxSqlSession for each async call (bypasses interceptor chain).
+     * Execute via the async path — returns {@link Future}, never blocks, runs on the shared engine.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     private Object executeAsync(MapperMethodInfo info, Object[] args) {
-        if (sqlSessionFactory == null) {
+        if (engine == null) {
             return Future.failedFuture(
-                    new BindingException("Async operations require SqlSessionFactory. "
+                    new BindingException("Async operations require a VertxExecutionEngine. "
                             + "Use @VertxMapperScan or @MapperScan(factoryBean=VertxMapperFactoryBean.class) "
                             + "to enable async mapper methods."));
         }
 
         Object param = info.extractParameter(args);
         String statementId = info.getStatementId();
+        Configuration configuration = sqlSession.getConfiguration();
 
-        // Open a new VertxSqlSession for async execution
-        SqlSession asyncSession = sqlSessionFactory.openSession(true);
-        if (!(asyncSession instanceof VertxSqlSession vertxSession)) {
-            asyncSession.close();
-            return Future.failedFuture(
-                    new BindingException("Async operations require VertxSqlSession, got: "
-                            + asyncSession.getClass().getName()));
+        final MappedStatement ms;
+        try {
+            ms = configuration.getMappedStatement(statementId);
+        } catch (Exception e) {
+            return Future.failedFuture(e);
         }
 
-        Future<?> future;
         try {
-            future = switch (info.getSqlCommandType()) {
+            return switch (info.getSqlCommandType()) {
                 case SELECT -> {
+                    RowBounds rowBounds = info.extractRowBounds(args);
                     if (info.isFutureSingleResult()) {
-                        yield vertxSession.selectOneAsync(statementId, param);
+                        yield engine.queryOne(ms, param, rowBounds);
                     } else {
-                        RowBounds rowBounds = info.extractRowBounds(args);
-                        yield vertxSession.selectListAsync(statementId, param, rowBounds);
+                        yield engine.query(ms, param, rowBounds, null);
                     }
                 }
-                case INSERT -> vertxSession.insertAsync(statementId, param);
-                case UPDATE -> vertxSession.updateAsync(statementId, param);
-                case DELETE -> vertxSession.deleteAsync(statementId, param);
+                case INSERT, UPDATE, DELETE -> engine.update(ms, param);
                 default -> Future.failedFuture(
                         new BindingException("Unknown execution type for '" + statementId + "'."));
             };
         } catch (Exception e) {
-            asyncSession.close();
             return Future.failedFuture(e);
         }
-
-        // Close the session after async completion
-        return future.onComplete(r -> asyncSession.close());
     }
 
     /**
      * Execute via sync path — delegates to the injected {@link SqlSession}.
-     * Works with both {@link org.mybatis.spring.SqlSessionTemplate} and raw {@link VertxSqlSession}.
+     * Works with both {@link org.mybatis.spring.SqlSessionTemplate} and raw
+     * {@link com.workoss.boot.vertx.mybatis.core.VertxSqlSession}.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     private Object executeSync(MapperMethodInfo info, Object[] args) {
         Object param = info.extractParameter(args);
         String statementId = info.getStatementId();

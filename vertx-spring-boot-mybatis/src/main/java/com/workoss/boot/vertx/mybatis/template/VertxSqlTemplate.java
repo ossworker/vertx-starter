@@ -1,12 +1,12 @@
 package com.workoss.boot.vertx.mybatis.template;
 
-import com.workoss.boot.vertx.mybatis.spring.VertxDataSourceTransactionManager;
+import com.workoss.boot.vertx.mybatis.core.DefaultSqlConnectionResolver;
+import com.workoss.boot.vertx.mybatis.core.SqlConnectionResolver;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
-import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.SqlResult;
 import io.vertx.sqlclient.templates.SqlTemplate;
 import org.slf4j.Logger;
@@ -62,6 +62,12 @@ public class VertxSqlTemplate {
     private final Pool pool;
 
     /**
+     * Chooses the client per execution: reactive transaction → blocking Spring transaction → pool.
+     * Resolution is non-blocking (the default resolver always returns a completed future).
+     */
+    private final SqlConnectionResolver connectionResolver;
+
+    /**
      * Cache for parsed query templates keyed by SQL string.
      * Templates are parsed once with the Pool, then {@code withClient()} is used
      * at execution time to switch to a transactional connection if needed.
@@ -70,7 +76,13 @@ public class VertxSqlTemplate {
     private final ConcurrentHashMap<String, SqlTemplate<Map<String, Object>, SqlResult<Void>>> updateCache = new ConcurrentHashMap<>();
 
     public VertxSqlTemplate(Pool pool) {
+        this(pool, new DefaultSqlConnectionResolver());
+    }
+
+    public VertxSqlTemplate(Pool pool, SqlConnectionResolver connectionResolver) {
         this.pool = pool;
+        this.connectionResolver = connectionResolver != null
+                ? connectionResolver : new DefaultSqlConnectionResolver();
     }
 
     private SqlTemplate<Map<String, Object>, RowSet<Row>> getOrCacheQueryTemplate(String sql) {
@@ -473,10 +485,14 @@ public class VertxSqlTemplate {
     // ===== Utility =====
 
     /**
-     * Get the appropriate SqlClient, respecting Spring @Transactional connections.
+     * Get the appropriate SqlClient, respecting the active reactive/blocking transaction.
+     * <p>
+     * The default resolver completes synchronously (Vert.x context local / thread local / pool), so
+     * reading {@code result()} here never blocks; a custom resolver returning a pending future falls
+     * back to the pool.
      */
     private SqlClient getSqlClient() {
-        SqlConnection springConn = VertxDataSourceTransactionManager.getCurrentConnection(pool);
-        return springConn != null ? springConn : pool;
+        SqlClient client = connectionResolver.resolve(pool).result();
+        return client != null ? client : pool;
     }
 }

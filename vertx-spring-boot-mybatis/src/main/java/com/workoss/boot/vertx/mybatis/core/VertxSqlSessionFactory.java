@@ -1,8 +1,8 @@
 package com.workoss.boot.vertx.mybatis.core;
 
+import com.workoss.boot.vertx.mybatis.dialect.DialectResolver;
 import io.vertx.sqlclient.Pool;
 import org.apache.ibatis.executor.Executor;
-import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.plugin.Interceptor;
 import org.apache.ibatis.plugin.Plugin;
 import org.apache.ibatis.session.*;
@@ -19,6 +19,10 @@ import java.sql.Connection;
  * Applies the MyBatis interceptor chain to the {@link VertxExecutor},
  * allowing all Executor-level plugins (PageHelper, PerformanceInterceptor, etc.)
  * to wrap the executor transparently.
+ * <p>
+ * All SQL execution funnels through the shared, thread-safe {@link VertxExecutionEngine};
+ * the factory only builds per-session {@link VertxExecutor}/{@link VertxTransaction} objects
+ * around it and honours the requested {@link ExecutorType}.
  */
 public class VertxSqlSessionFactory implements SqlSessionFactory {
 
@@ -26,15 +30,28 @@ public class VertxSqlSessionFactory implements SqlSessionFactory {
 
     private final Configuration configuration;
     private final Pool pool;
-    private final SqlResolver sqlResolver;
-    private final VertxRowMapper rowMapper;
+    private final VertxExecutionEngine engine;
 
-    public VertxSqlSessionFactory(Configuration configuration, Pool pool,
-                                  SqlResolver sqlResolver, VertxRowMapper rowMapper) {
+    /**
+     * Preferred constructor: the engine (SQL resolution, dialect, row mapping, connection/transaction
+     * selection) is built and shared by the auto-configuration.
+     */
+    public VertxSqlSessionFactory(Configuration configuration, Pool pool, VertxExecutionEngine engine) {
         this.configuration = configuration;
         this.pool = pool;
-        this.sqlResolver = sqlResolver;
-        this.rowMapper = rowMapper;
+        this.engine = engine;
+    }
+
+    /**
+     * Convenience constructor that builds a default engine from the given resolver/mapper,
+     * auto-detecting the dialect from the pool.
+     */
+    public VertxSqlSessionFactory(Configuration configuration, Pool pool,
+                                  SqlResolver sqlResolver, VertxRowMapper rowMapper) {
+        this(configuration, pool, new VertxExecutionEngine(
+                pool, sqlResolver, rowMapper,
+                new DefaultSqlConnectionResolver(),
+                DialectResolver.resolve(null, pool)));
     }
 
     @Override
@@ -66,10 +83,9 @@ public class VertxSqlSessionFactory implements SqlSessionFactory {
     public SqlSession openSession(ExecutorType execType, boolean autoCommit) {
         VertxTransaction vertxTransaction = new VertxTransaction(pool, autoCommit);
 
-        // Create the original VertxExecutor
+        // Create the original VertxExecutor (thin sync adapter over the shared engine)
         VertxExecutor vertxExecutor = new VertxExecutor(
-                configuration, vertxTransaction, pool, vertxTransaction,
-                sqlResolver, rowMapper);
+                configuration, vertxTransaction, pool, vertxTransaction, engine, execType);
 
         // Apply interceptor chain (plugins)
         Executor wrappedExecutor = applyPlugins(vertxExecutor);
@@ -96,6 +112,11 @@ public class VertxSqlSessionFactory implements SqlSessionFactory {
 
     public Pool getPool() {
         return pool;
+    }
+
+    /** The shared non-blocking execution engine backing every session and mapper proxy. */
+    public VertxExecutionEngine getEngine() {
+        return engine;
     }
 
     /**

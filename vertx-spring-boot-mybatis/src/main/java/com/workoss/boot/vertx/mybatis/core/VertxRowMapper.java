@@ -1,5 +1,7 @@
 package com.workoss.boot.vertx.mybatis.core;
 
+import com.workoss.boot.vertx.mybatis.typehandler.VertxTypeHandler;
+import com.workoss.boot.vertx.mybatis.typehandler.VertxTypeHandlerBridge;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import org.apache.ibatis.mapping.ResultFlag;
@@ -40,9 +42,20 @@ public class VertxRowMapper {
     private static final Logger logger = LoggerFactory.getLogger(VertxRowMapper.class);
 
     private final Configuration configuration;
+    /** Bridges JDBC-shaped MyBatis TypeHandlers onto vertx-sql-client row values. */
+    private volatile VertxTypeHandlerBridge typeHandlerBridge = new VertxTypeHandlerBridge();
 
     public VertxRowMapper(Configuration configuration) {
         this.configuration = configuration;
+    }
+
+    public VertxTypeHandlerBridge getTypeHandlerBridge() {
+        return typeHandlerBridge;
+    }
+
+    public void setTypeHandlerBridge(VertxTypeHandlerBridge typeHandlerBridge) {
+        this.typeHandlerBridge = typeHandlerBridge != null
+                ? typeHandlerBridge : new VertxTypeHandlerBridge();
     }
 
     /**
@@ -384,14 +397,18 @@ public class VertxRowMapper {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private Object getColumnValueWithHandler(Row row, String column, ResultMapping mapping) {
         TypeHandler typeHandler = mapping.getTypeHandler();
+        if (typeHandler instanceof VertxTypeHandler) {
+            return ((VertxTypeHandler<Object>) typeHandler).fromSqlValue(row.getValue(column));
+        }
         if (typeHandler != null) {
-            Object rawValue = row.getValue(column);
-            if (rawValue == null) {
+            Object raw = row.getValue(column);
+            if (raw == null) {
                 return null;
             }
-            // Most TypeHandlers are JDBC-based and can't be used directly,
-            // but we try to use them for simple conversions
-            return getColumnValue(row, column, mapping.getJavaType());
+            Object converted = typeHandlerBridge.tryRead(typeHandler, row, column);
+            if (converted != VertxTypeHandlerBridge.FALLBACK) {
+                return converted;
+            }
         }
         return getColumnValue(row, column, mapping.getJavaType());
     }
