@@ -1,0 +1,7 @@
+server:
+  port: 8082
+
+zenoh:
+  cluster:
+    node-id: node-2
+#    connect: ["127.0.0.1:7447"]

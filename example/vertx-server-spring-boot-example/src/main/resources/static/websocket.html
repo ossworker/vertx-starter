@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>Vert.x + WebFlux WebSocket</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 44rem; color: #1f2328; }
+        h1 { font-size: 1.25rem; }
+        #status { font-weight: 600; }
+        #status.open { color: #1a7f37; }
+        #status.closed { color: #cf222e; }
+        #log { height: 20rem; overflow-y: auto; border: 1px solid #d0d7de; border-radius: 6px;
+               padding: .5rem; font-family: ui-monospace, monospace; font-size: .8rem; background: #f6f8fa; }
+        #log div { white-space: pre-wrap; }
+        #log .out { color: #0550ae; }
+        #log .sys { color: #6e7781; }
+        form { display: flex; gap: .5rem; margin: .75rem 0; }
+        input[type=text] { flex: 1; padding: .4rem .5rem; border: 1px solid #d0d7de; border-radius: 6px; }
+        button { padding: .4rem .9rem; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa;
+                 cursor: pointer; }
+        button:disabled { opacity: .5; cursor: default; }
+        code { background: #f6f8fa; padding: .1rem .3rem; border-radius: 4px; }
+    </style>
+</head>
+<body>
+<h1>Vert.x + WebFlux WebSocket 测试页</h1>
+<p>
+    与 HTTP 路由共用同一端口：本页由 <code>GET /websocket.html</code> 提供，
+    WebSocket 走 <code>GET /ws/echo</code>，健康检查走 <code>GET /ping</code>。
+</p>
+<p>状态：<span id="status" class="closed">未连接</span></p>
+
+<form id="form">
+    <input id="message" type="text" placeholder="输入要发送的文本" autocomplete="off" value="hello vertx">
+    <button id="send" type="submit" disabled>发送</button>
+</form>
+<p>
+    <button id="connect" type="button">连接</button>
+    <button id="close" type="button" disabled>关闭 (1000)</button>
+    <button id="ping" type="button">HTTP /ping</button>
+    <button id="clear" type="button">清空日志</button>
+</p>
+
+<div id="log"></div>
+
+<script>
+    const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = scheme + '//' + location.host + '/ws/echo';
+
+    const logEl = document.getElementById('log');
+    const statusEl = document.getElementById('status');
+    const buttons = {
+        connect: document.getElementById('connect'),
+        close: document.getElementById('close'),
+        send: document.getElementById('send')
+    };
+    let socket = null;
+
+    function log(text, kind) {
+        const line = document.createElement('div');
+        if (kind) line.className = kind;
+        line.textContent = new Date().toLocaleTimeString() + '  ' + text;
+        logEl.appendChild(line);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setConnected(connected) {
+        statusEl.textContent = connected ? '已连接 ' + url : '未连接';
+        statusEl.className = connected ? 'open' : 'closed';
+        buttons.connect.disabled = connected;
+        buttons.close.disabled = !connected;
+        buttons.send.disabled = !connected;
+    }
+
+    buttons.connect.onclick = () => {
+        socket = new WebSocket(url);
+        socket.onopen = () => { setConnected(true); log('握手成功', 'sys'); };
+        socket.onmessage = event => log('← ' + event.data);
+        socket.onclose = event => {
+            setConnected(false);
+            log('连接关闭 code=' + event.code + ' reason="' + (event.reason || '') + '"', 'sys');
+            socket = null;
+        };
+        socket.onerror = () => log('连接出错', 'sys');
+    };
+
+    buttons.close.onclick = () => socket && socket.close(1000, 'client-bye');
+
+    document.getElementById('form').onsubmit = event => {
+        event.preventDefault();
+        const input = document.getElementById('message');
+        if (socket && input.value) {
+            socket.send(input.value);
+            log('→ ' + input.value, 'out');
+        }
+    };
+
+    document.getElementById('ping').onclick = async () => {
+        const response = await fetch('/ping', {headers: {'Accept': 'text/plain'}});
+        log('HTTP /ping → ' + response.status + ' ' + await response.text(), 'out');
+    };
+
+    document.getElementById('clear').onclick = () => { logEl.textContent = ''; };
+</script>
+</body>
+</html>

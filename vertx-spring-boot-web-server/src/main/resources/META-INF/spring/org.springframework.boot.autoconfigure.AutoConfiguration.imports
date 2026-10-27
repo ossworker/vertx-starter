@@ -1,1 +1,2 @@
 com.workoss.boot.vertx.web.server.VertxWebServerAutoConfiguration
+com.workoss.boot.vertx.web.server.websocket.VertxWebSocketAutoConfiguration

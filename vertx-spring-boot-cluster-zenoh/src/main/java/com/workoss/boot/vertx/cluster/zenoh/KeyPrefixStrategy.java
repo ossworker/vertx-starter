@@ -3,10 +3,10 @@ package com.workoss.boot.vertx.cluster.zenoh;
 /**
  * Builds key prefixes for multi-tenant isolation in Zenoh.
  * All keys used by the cluster manager follow the pattern:
- * vertx/{app-name}/{environment}/...
+ * zenoh/{app-name}/{environment}/...
  *
- * Cluster keys: vertx/{app}/{env}/cluster/...
- * EventBus keys: vertx/{app}/{env}/eventbus/...
+ * Cluster keys: zenoh/{app}/{env}/cluster/...
+ * EventBus keys: zenoh/{app}/{env}/eventbus/...
  */
 public class KeyPrefixStrategy {
 
@@ -14,7 +14,7 @@ public class KeyPrefixStrategy {
     private final String clusterPrefix;
 
     public KeyPrefixStrategy(String appName, String environment) {
-        this.root = "vertx/" + sanitize(appName) + "/" + sanitize(environment);
+        this.root = "zenoh/" + sanitize(appName) + "/" + sanitize(environment);
         this.clusterPrefix = root + "/cluster";
     }
 
@@ -130,14 +130,14 @@ public class KeyPrefixStrategy {
     // --- Accessors ---
 
     /**
-     * Get the root prefix (vertx/{app}/{env}).
+     * Get the root prefix (zenoh/{app}/{env}).
      */
     public String getRoot() {
         return root;
     }
 
     /**
-     * Get the cluster prefix (vertx/{app}/{env}/cluster).
+     * Get the cluster prefix (zenoh/{app}/{env}/cluster).
      */
     public String getPrefix() {
         return clusterPrefix;

@@ -31,3 +31,16 @@ target
 dependency-reduced-pom.xml
 
 *.flattened-pom.xml
+
+.qoder/
+.workbuddy/
+
+# macOS junk
+.DS_Store
+
+# QUIC integration-test TLS fixtures (self-signed, generated locally; private key must not be committed)
+spring-boot-zenoh-cluster/src/test/resources/quic/
+
+# root scratch scripts
+/tomcat-server.js
+/vertx-server.js

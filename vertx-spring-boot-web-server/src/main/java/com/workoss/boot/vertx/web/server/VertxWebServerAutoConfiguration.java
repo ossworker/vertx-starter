@@ -1,5 +1,6 @@
 package com.workoss.boot.vertx.web.server;
 
+import com.workoss.boot.vertx.web.server.websocket.VertxWebSocketProperties;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -19,14 +20,15 @@ import org.springframework.http.server.reactive.HttpHandler;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
 @ConditionalOnClass({HttpServer.class, HttpHandler.class})
 @ConditionalOnMissingBean(ReactiveWebServerFactory.class)
-@EnableConfigurationProperties(VertxHttpServerProperties.class)
+@EnableConfigurationProperties({VertxHttpServerProperties.class, VertxWebSocketProperties.class})
 public class VertxWebServerAutoConfiguration {
 
     @Bean
     public VertxReactiveWebServerFactory vertxReactiveWebServerFactory(
             Vertx vertx,
             VertxHttpServerProperties serverProperties,
+            VertxWebSocketProperties webSocketProperties,
             ServerProperties springServerProperties) {
-        return new VertxReactiveWebServerFactory(vertx, serverProperties, springServerProperties);
+        return new VertxReactiveWebServerFactory(vertx, serverProperties, webSocketProperties, springServerProperties);
     }
 }

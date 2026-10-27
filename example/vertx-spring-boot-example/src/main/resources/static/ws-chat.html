@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vert.x 多房间 WebSocket 聊天室示例</title>
+    <style>
+        :root { --bg:#0f172a; --panel:#1e293b; --accent:#38bdf8; --text:#e2e8f0; --muted:#94a3b8; --me:#22c55e; }
+        * { box-sizing: border-box; }
+        body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+               background:var(--bg); color:var(--text); height:100vh; display:flex; }
+        #sidebar { width:260px; background:var(--panel); padding:16px; overflow:auto; border-right:1px solid #334155; }
+        #sidebar h2 { font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin:0 0 10px; }
+        #sidebar h2:not(:first-child) { margin-top:20px; }
+        .user { padding:8px 10px; margin-bottom:6px; background:#0b1220; border-radius:8px; font-size:13px; }
+        .user .role { color:var(--accent); font-size:11px; }
+        .user .node { color:var(--muted); font-size:11px; }
+        .room { padding:8px 10px; margin-bottom:6px; background:#0b1220; border-radius:8px; font-size:13px; cursor:pointer; border:1px solid transparent; }
+        .room.active { border-color:var(--accent); }
+        .room .cnt { color:var(--muted); font-size:11px; float:right; }
+        #main { flex:1; display:flex; flex-direction:column; }
+        #topbar { padding:12px 16px; border-bottom:1px solid #334155; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+        #topbar .room-tag { background:#14532d; color:var(--me); padding:4px 10px; border-radius:8px; font-size:13px; }
+        #topbar .node-tag { color:var(--muted); font-size:12px; }
+        #topbar input { padding:6px 10px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--text); }
+        #messages { flex:1; overflow:auto; padding:16px; }
+        .msg { margin-bottom:10px; max-width:75%; }
+        .msg .meta { font-size:11px; color:var(--muted); margin-bottom:2px; }
+        .msg .bubble { background:var(--panel); padding:8px 12px; border-radius:12px; display:inline-block; word-break:break-word; }
+        .msg.me { margin-left:auto; text-align:right; }
+        .msg.me .bubble { background:#14532d; }
+        .system { text-align:center; color:var(--muted); font-size:12px; margin:6px 0; }
+        #composer { display:flex; gap:8px; padding:12px; border-top:1px solid #334155; }
+        #composer input { flex:1; padding:10px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--text); }
+        button { padding:10px 16px; border:none; border-radius:8px; background:var(--accent); color:#04293a; font-weight:600; cursor:pointer; }
+        button:disabled { opacity:.5; cursor:not-allowed; }
+        #login { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; }
+        #login .card { background:var(--panel); padding:28px; border-radius:14px; width:320px; }
+        #login h1 { font-size:18px; margin:0 0 16px; }
+        #login input { width:100%; padding:10px; margin-bottom:12px; border-radius:8px; border:1px solid #334155; background:#0b1220; color:var(--text); }
+        .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#64748b; margin-right:6px; }
+        .dot.on { background:var(--me); }
+    </style>
+</head>
+<body>
+    <div id="login">
+        <div class="card">
+            <h1>加入多房间聊天</h1>
+            <input id="login-name" placeholder="昵称 (如 Alice)" value="Alice" />
+            <input id="login-role" placeholder="角色 (如 admin/user)" value="user" />
+            <input id="login-room" placeholder="房间 (如 team-a)" value="team-a" />
+            <button id="login-btn" style="width:100%">连接 WebSocket</button>
+            <p id="login-err" style="color:#f87171;font-size:12px;min-height:16px"></p>
+            <p style="color:var(--muted);font-size:12px">连接地址：<code id="login-url"></code></p>
+        </div>
+    </div>
+
+    <div id="sidebar">
+        <h2>房间列表</h2>
+        <div id="rooms"></div>
+        <h2>在线成员 <span id="count" class="role"></span></h2>
+        <div id="users"></div>
+    </div>
+
+    <div id="main">
+        <div id="topbar">
+            <span class="room-tag" id="current-room">#lobby</span>
+            <span class="node-tag" id="current-node"></span>
+            <span style="flex:1"></span>
+            <input id="switch-room" placeholder="切换到房间…" style="width:140px" />
+            <button id="switch-btn">切换</button>
+            <span id="conn-status" class="dot" title="连接状态"></span>
+            <span id="conn-text" style="font-size:12px;color:var(--muted)"></span>
+            <select id="mode" title="连接模式：普通重连 vs SharedWorker(刷新不断线)"
+                    style="padding:6px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:var(--text)">
+                <option value="page">普通重连</option>
+                <option value="worker">SharedWorker(刷新不断线)</option>
+            </select>
+        </div>
+        <div id="messages"></div>
+        <div id="composer">
+            <input id="input" placeholder="输入消息，回车发送…" disabled />
+            <button id="send-btn" disabled>发送</button>
+        </div>
+    </div>
+
+<script>
+    const $ = (id) => document.getElementById(id);
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const baseWs = `${proto}://${location.host}/ws/chat`;
+    $('login-url').textContent = baseWs + '?name=NAME&role=ROLE&room=ROOM';
+
+    // ---- 稳定身份：uid 持久化，刷新后重连可 resume；lastSeq 持久化用于断线补发 ----
+    function loadUid() {
+        let u = localStorage.getItem('wschat_uid');
+        if (!u) { u = 'u-' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('wschat_uid', u); }
+        return u;
+    }
+    function loadSeq(uid) { return parseInt(localStorage.getItem('wschat_seq_' + uid) || '0', 10) || 0; }
+    function saveSeq(uid, seq) { localStorage.setItem('wschat_seq_' + uid, String(seq)); }
+    function loadMode() { return localStorage.getItem('wschat_mode') || 'page'; }
+    function saveMode(m) { localStorage.setItem('wschat_mode', m); }
+
+    // ---- UI 状态 ----
+    let self = null;
+    let currentRoom = null;
+    let allUsers = [];
+    let knownRooms = {};
+    let transport = null;
+    let workerRestore = false; // 本次 welcome 是否来自 SharedWorker 重放（刷新恢复）
+
+    function renderRooms() {
+        const box = $('rooms');
+        box.innerHTML = '';
+        const names = Object.keys(knownRooms).sort();
+        if (names.length === 0) { box.innerHTML = '<div class="room">（暂无其他房间）</div>'; return; }
+        names.forEach(r => {
+            const div = document.createElement('div');
+            div.className = 'room' + (r === currentRoom ? ' active' : '');
+            div.innerHTML = `#${esc(r)} <span class="cnt">${knownRooms[r] ? knownRooms[r].count : 0} 人</span>`;
+            div.onclick = () => doSwitch(r);
+            box.appendChild(div);
+        });
+    }
+    function renderUsers() {
+        const box = $('users');
+        box.innerHTML = '';
+        const members = allUsers.filter(u => u.room === currentRoom);
+        $('count').textContent = members.length ? '(' + members.length + ')' : '';
+        members.forEach(u => {
+            const div = document.createElement('div');
+            div.className = 'user';
+            div.innerHTML = `<strong>${esc(u.name)}</strong>
+                <div class="role">${esc(u.role)}</div>
+                <div class="node">@ ${esc(u.nodeId || '?')}</div>`;
+            box.appendChild(div);
+        });
+    }
+    function refreshRoomsFromUsers() {
+        const map = {};
+        allUsers.forEach(u => { const r = u.room || 'lobby'; map[r] = (map[r] || 0) + 1; });
+        Object.keys(map).forEach(r => { knownRooms[r] = knownRooms[r] || {}; knownRooms[r].count = map[r]; });
+        renderRooms();
+    }
+    function addSystem(text) {
+        const div = document.createElement('div');
+        div.className = 'system';
+        div.textContent = text;
+        $('messages').appendChild(div);
+        scroll();
+    }
+    function addChat(from, text, time, room) {
+        const div = document.createElement('div');
+        div.className = 'msg' + (self && from.id === self.id ? ' me' : '');
+        const t = time ? new Date(time).toLocaleTimeString() : '';
+        div.innerHTML = `<div class="meta">${esc(from.name)} · ${esc(from.role)} · #${esc(room || currentRoom)} · ${t}</div>
+                         <div class="bubble">${esc(text)}</div>`;
+        $('messages').appendChild(div);
+        scroll();
+    }
+    function scroll() { $('messages').scrollTop = $('messages').scrollHeight; }
+    function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    function setRoom(room) {
+        currentRoom = room;
+        $('current-room').textContent = '#' + room;
+        renderRooms();
+        renderUsers();
+    }
+
+    // ---- 连接状态指示 ----
+    function setConn(status) {
+        const dot = $('conn-status');
+        const txt = $('conn-text');
+        dot.className = 'dot' + (status === 'open' ? ' on' : '');
+        if (status === 'open') txt.textContent = '已连接';
+        else if (status === 'reconnecting') txt.textContent = '重连中…';
+        else if (status === 'connecting') txt.textContent = '连接中…';
+        else txt.textContent = '';
+    }
+
+    // ---- 消息处理（与传输层解耦）----
+    function handleMessage(msg) {
+        switch (msg.type) {
+            case 'welcome':
+                self = msg.user;
+                currentRoom = msg.room || 'lobby';
+                allUsers = msg.online || [];
+                $('current-node').textContent = '节点 ' + (self.nodeId || '?') + (msg.resumed ? ' · 已恢复会话' : '');
+                setRoom(currentRoom);
+                refreshRoomsFromUsers();
+                renderUsers();
+                addSystem(workerRestore
+                    ? `已从 SharedWorker 恢复会话（连接未被刷新断开）：${self.name} → #${currentRoom}`
+                    : (msg.resumed
+                        ? `已恢复会话（无感重连）：${self.name} → #${currentRoom}`
+                        : `已连接：${self.name} (${self.role}) → #${currentRoom} @ ${self.nodeId}`));
+                workerRestore = false;
+                break;
+            case 'system':
+                addSystem(msg.text);
+                break;
+            case 'chat':
+                addChat(msg.from, msg.text, msg.time, msg.room);
+                break;
+            case 'roster':
+                allUsers = msg.online || [];
+                refreshRoomsFromUsers();
+                renderUsers();
+                break;
+            case 'roomChanged':
+                self = msg.user;
+                setRoom(msg.room);
+                addSystem(`已切换到 #${msg.room}`);
+                break;
+        }
+    }
+
+    // =====================================================================
+    // 传输层：两种实现，UI 通过 mode 切换
+    //  - PageTransport：连接挂在页面内；断开后指数退避重连 + 带 uid/resume 回 server
+    //  - WorkerTransport：连接挂在 SharedWorker，F5 不销毁上下文 → TCP 不断（方案 A）
+    // =====================================================================
+    const enc = (s) => encodeURIComponent(s == null ? '' : String(s));
+
+    class PageTransport {
+        constructor() {
+            this.ws = null; this.onMessage = () => {}; this.onStatus = () => {};
+            this.backoff = 0; this.lastSeq = 0; this.uid = null; this.params = null; this.closed = false;
+        }
+        connect(params) {
+            this.params = params; this.uid = params.uid; this.lastSeq = params.resume || 0; this.closed = false; this._open();
+        }
+        _open() {
+            const p = this.params;
+            const url = `${p.baseWs}?name=${enc(p.name)}&role=${enc(p.role)}&room=${enc(p.room)}&uid=${enc(this.uid)}&resume=${this.lastSeq}`;
+            this.onStatus('connecting');
+            try { this.ws = new WebSocket(url); } catch (e) { this._schedule(); return; }
+            this.ws.onopen = () => { this.backoff = 0; this.onStatus('open'); };
+            this.ws.onmessage = (ev) => this._recv(ev.data);
+            this.ws.onclose = () => { if (this.closed) return; this.onStatus('reconnecting'); this._schedule(); };
+            this.ws.onerror = () => {};
+        }
+        _schedule() {
+            if (this.closed) return;
+            const d = Math.min(this.backoff + 1000, 10000); this.backoff = d;
+            setTimeout(() => this._open(), d);
+        }
+        _recv(data) {
+            let m; try { m = JSON.parse(data); } catch (e) { return; }
+            if (m.type === 'chat' && m.seq) { this.lastSeq = m.seq; saveSeq(this.uid, this.lastSeq); }
+            this.onMessage(data);
+        }
+        send(obj) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(obj)); }
+        close() { this.closed = true; if (this.ws) try { this.ws.close(); } catch (e) {} }
+    }
+
+    class WorkerTransport {
+        constructor() {
+            this.worker = null; this.onMessage = () => {}; this.onStatus = () => {};
+            this.closed = false; this.backoff = 0; this.params = null; this.fallback = null;
+            this.attachOnly = false; // true = 刷新后挂接既有连接，不发 connect
+        }
+        connect(params) {
+            this.params = params; this.closed = false; this.attachOnly = false; this._ensureWorker();
+            // attach() 已创建过 worker 时复用同一实例直接发 connect，避免重复 spawn。
+            if (this.worker) this.worker.port.postMessage({ type: 'connect', params: this.params });
+        }
+        // F5 刷新场景：只挂接到 SharedWorker。若 worker 仍持有连接，会重放 welcome/roster，
+        // 页面据此恢复会话；若无存活连接，restoreOnLoad 会在超时后用 connect() 自动重连。
+        attach() {
+            this.closed = false; this.attachOnly = true; this._ensureWorker();
+        }
+        _ensureWorker() {
+            if (this.worker) return;
+            if (typeof SharedWorker === 'undefined') { this._fallbackToPage(); return; }
+            this.onStatus('connecting');
+            try { this.worker = new SharedWorker('ws-shared-worker.js'); }
+            catch (e) { this._fallbackToPage(); return; }
+            this.worker.onerror = () => { this.worker = null; this.onStatus('reconnecting'); this._scheduleSpawn(); };
+            this.worker.port.onmessage = (ev) => {
+                const d = ev.data;
+                if (d.type === 'status') this.onStatus(d.status);
+                else if (d.type === 'message') this.onMessage(d.data);
+            };
+            this.worker.port.start();
+            // 不再自动 postMessage(connect)：由 connect()/attach() 显式决定发不发。
+        }
+        _fallbackToPage() {
+            const t = new PageTransport();
+            t.onMessage = this.onMessage; t.onStatus = this.onStatus;
+            this.fallback = t; t.connect(this.params);
+        }
+        _scheduleSpawn() {
+            if (this.closed) return;
+            if (this.fallback) { this.fallback.close(); this.fallback = null; }
+            const d = Math.min(this.backoff + 1000, 10000); this.backoff = d;
+            setTimeout(() => this._ensureWorker(), d);
+        }
+        send(obj) {
+            if (this.fallback) return this.fallback.send(obj);
+            if (this.worker) this.worker.port.postMessage({ type: 'send', data: obj });
+        }
+        close() {
+            this.closed = true;
+            if (this.fallback) return this.fallback.close();
+            if (this.worker) this.worker.port.postMessage({ type: 'close' });
+        }
+    }
+
+    function connect() {
+        const name = $('login-name').value.trim() || 'guest';
+        const role = $('login-role').value.trim() || 'user';
+        const room = $('login-room').value.trim() || 'lobby';
+        const uid = loadUid();
+        const params = { baseWs, name, role, room, uid, resume: loadSeq(uid) };
+        // 持久化档案：刷新后自动重连必须回读真实昵称/角色/房间，
+        // 否则会用登录框默认值（Alice/user/team-a）覆盖原身份。
+        localStorage.setItem('wschat_name', name);
+        localStorage.setItem('wschat_role', role);
+        localStorage.setItem('wschat_room', room);
+        $('login-err').textContent = '';
+        if (transport) transport.close();
+        const mode = loadMode();
+        transport = (mode === 'worker') ? new WorkerTransport() : new PageTransport();
+        transport.onMessage = (data) => { try { handleMessage(JSON.parse(data)); } catch (e) {} };
+        transport.onStatus = (s) => setConn(s);
+        transport.connect(params);
+        $('login').style.display = 'none';
+        $('input').disabled = false;
+        $('send-btn').disabled = false;
+    }
+
+    function send() {
+        const text = $('input').value.trim();
+        if (!text || !transport) return;
+        transport.send({ type: 'chat', text });
+        $('input').value = '';
+    }
+
+    function doSwitch(room) {
+        if (!transport) return;
+        transport.send({ type: 'switch', room });
+        $('switch-room').value = '';
+    }
+
+    // ---- 登录框预填：回显上次连接用的昵称/角色/房间 ----
+    $('login-name').value = localStorage.getItem('wschat_name') || 'Alice';
+    $('login-role').value = localStorage.getItem('wschat_role') || 'user';
+    $('login-room').value = localStorage.getItem('wschat_room') || 'team-a';
+
+    // ---- 模式切换：改变 localStorage 并重建连接 ----
+    $('mode').value = loadMode();
+    $('mode').addEventListener('change', () => {
+        saveMode($('mode').value);
+        if ($('login').style.display === 'none') connect();
+    });
+
+    // ---- 刷新恢复：静默恢复，避免刷新弹登录框 ----
+    // 首次访问（无持久化档案）→ 显示登录框走正常流程。
+    // 已连接过（有持久化档案）→ 加载即隐藏登录框，尝试两道恢复：
+    //   1) worker 模式且 SharedWorker 仍存活 → 重放 welcome/roster，瞬间接回会话；
+    //   2) 单标签 F5 时 SharedWorker 常被浏览器回收（这是真浏览器与模拟环境的差异），
+    //      重放不到 → 1.5s 后用持久化 uid + resume 序号自动重连，服务端 5s 宽限内
+    //      按同一身份 resume（不重播 joined、不丢消息），同样无感。
+    // 仅当服务端彻底不可达（4.5s 仍无 welcome）才退回登录框。
+    (function restoreOrLogin() {
+        const mode = loadMode();
+        const savedName = localStorage.getItem('wschat_name');
+        if (!savedName) return; // 首次访问：保持登录框可见
+        const uid = loadUid();
+        const params = {
+            baseWs,
+            name: savedName,
+            role: localStorage.getItem('wschat_role') || 'user',
+            room: localStorage.getItem('wschat_room') || 'lobby',
+            uid, resume: loadSeq(uid)
+        };
+        const useWorker = mode === 'worker' && typeof SharedWorker !== 'undefined';
+        const t = useWorker ? new WorkerTransport() : new PageTransport();
+        transport = t;
+        let restored = false;
+        t.onMessage = (data) => {
+            let m; try { m = JSON.parse(data); } catch (e) { return; }
+            if (m.type === 'welcome') { restored = true; if (useWorker) workerRestore = true; }
+            handleMessage(m);
+        };
+        t.onStatus = (s) => setConn(s);
+        $('login').style.display = 'none'; // 先隐藏，避免刷新瞬间闪现登录框
+        if (useWorker) {
+            t.attach();                       // 防线 1：worker 重放
+            setTimeout(() => {                // 防线 2：worker 已死则自动重连
+                if (!restored && transport === t) t.connect(params);
+            }, 1500);
+        } else {
+            t.connect(params);                // 普通模式：直接带 uid 重连，服务端 resume
+        }
+        // 兜底：4.5s 仍无 welcome（如服务端宕机）→ 退回登录框
+        setTimeout(() => {
+            if (!restored && transport === t) $('login').style.display = 'flex';
+        }, 4500);
+    })();
+
+    $('login-btn').onclick = connect;
+    $('send-btn').onclick = send;
+    $('switch-btn').onclick = () => doSwitch($('switch-room').value.trim());
+    $('input').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+    $('switch-room').addEventListener('keydown', e => { if (e.key === 'Enter') doSwitch($('switch-room').value.trim()); });
+</script>
+</body>
+</html>

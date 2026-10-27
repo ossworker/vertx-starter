@@ -37,7 +37,7 @@ import org.springframework.context.annotation.Bean;
  *   <li>Tree structure support</li>
  * </ul>
  * <p>
- * Zenoh keys follow the isolation pattern: vertx/{app}/{env}/dict/...
+ * Zenoh keys follow the isolation pattern: zenoh/{app}/{env}/dict/...
  * ensuring multi-tenant separation across applications and environments.
  */
 @AutoConfiguration

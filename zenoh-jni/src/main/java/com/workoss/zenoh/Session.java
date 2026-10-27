@@ -1,13 +1,15 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class Session implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    Session(long handle) {
+    private Session(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("Session handle must not be zero");
         this.handle = handle;
+    }
+
+    static Session __boltffiFromHandle(long handle) {
+        return new Session(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
@@ -18,26 +20,53 @@ public final class Session implements AutoCloseable {
      * C symbols for async fn returning Result<Self, String>.
      */
     public Session(Config config) {
-        this(Session.__boltffiCreateHandle0(config));
+        this(new java.util.concurrent.atomic.AtomicLong(Session.__boltffiCreateHandle0(config)));
     }
+
 
     private static long __boltffiCreateHandle0(Config config) {
         try {
     return Native.boltffi_init_class_zenoh_ffi_session_session_open(config.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
-    throw new RuntimeException("Constructor failed");
+    throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
 }
     }
 
+    /**
+     * Share an embedded router's own session: same runtime, listeners and connections, so no
+     * loopback link (and no TLS material for it) is needed. Closing this session closes the
+     * router; release the handle and close the router instead.
+     */
+    public Session(EmbeddedRouter router) {
+        this(new java.util.concurrent.atomic.AtomicLong(Session.__boltffiCreateHandle1(router)));
+    }
+
+
+    private static long __boltffiCreateHandle1(EmbeddedRouter router) {
+        try {
+    return Native.boltffi_init_class_zenoh_ffi_session_session_from_router(router.rawHandle());
+} catch (BoltFfiErrorBufferException __boltffi_error) {
+    throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
+}
+    }
+
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("Session is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("Session is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("Session is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_session_session(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_session_session(__boltffi_handle);
     }
 
     /**

@@ -1,0 +1,31 @@
+
+
+spring:
+  application:
+    name: vertx-server-spring-boot-example
+  profiles:
+    active: instance1
+
+
+logging:
+  level:
+    root: info
+    com.workoss.boot.vertx: debug
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+vertx:
+  prefer-native-transport: true
+  event-loop-pool-size: 32
+  worker-pool-size: 50
+  http-server:
+    accept-backlog: 4096

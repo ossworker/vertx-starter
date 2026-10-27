@@ -1,13 +1,15 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class Query implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    Query(long handle) {
+    private Query(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("Query handle must not be zero");
         this.handle = handle;
+    }
+
+    static Query __boltffiFromHandle(long handle) {
+        return new Query(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
@@ -16,26 +18,35 @@ public final class Query implements AutoCloseable {
      * Equivalent to zenoh-java: queryable.receiver().recv()
      */
     public Query(Queryable queryable) {
-        this(Query.__boltffiCreateHandle0(queryable));
+        this(new java.util.concurrent.atomic.AtomicLong(Query.__boltffiCreateHandle0(queryable)));
     }
+
 
     private static long __boltffiCreateHandle0(Queryable queryable) {
         try {
     return Native.boltffi_init_class_zenoh_ffi_query_query_recv(queryable.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
-    throw new RuntimeException("Constructor failed");
+    throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("Query is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("Query is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("Query is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_query_query(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_query_query(__boltffi_handle);
     }
 
     /**
@@ -44,7 +55,7 @@ public final class Query implements AutoCloseable {
      */
     public static Query tryRecv(Queryable queryable) {
         try {
-    return new Query(Native.boltffi_init_class_zenoh_ffi_query_query_try_recv(queryable.rawHandle()));
+    return Query.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_query_query_try_recv(queryable.rawHandle()));
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }

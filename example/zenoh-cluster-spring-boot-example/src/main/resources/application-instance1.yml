@@ -1,0 +1,7 @@
+server:
+  port: 8081
+
+zenoh:
+  cluster:
+    node-id: node-1
+#    listen: ["127.0.0.1:7447"]

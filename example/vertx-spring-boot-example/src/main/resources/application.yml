@@ -34,8 +34,8 @@ vertx:
 vertx.cluster.zenoh:
   app-name: vertx-example
   environment: dev
-  # instance1 runs the router; instance2/instance3 connect to it as clients
-  mode: router
-#  listen:
-#    - "tcp/127.0.0.1:7447"
+  # All three instances are equal PEERS. They auto-discover each other via Zenoh
+  # multicast scouting, so any node can start first — no startup ordering required.
+  # Each instance overrides `listen` with its own localhost port (see instance ymls).
+  mode: peer
 

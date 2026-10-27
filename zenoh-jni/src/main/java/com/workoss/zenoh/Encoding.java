@@ -1,21 +1,24 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class Encoding implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    Encoding(long handle) {
+    private Encoding(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("Encoding handle must not be zero");
         this.handle = handle;
+    }
+
+    static Encoding __boltffiFromHandle(long handle) {
+        return new Encoding(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
      * Create encoding from id and optional schema
      */
     public Encoding(short id, java.util.Optional<String> schema) {
-        this(Encoding.__boltffiCreateHandle0(id, schema));
+        this(new java.util.concurrent.atomic.AtomicLong(Encoding.__boltffiCreateHandle0(id, schema)));
     }
+
 
     private static long __boltffiCreateHandle0(short id, java.util.Optional<String> schema) {
         WireLease __boltffi_schema_wire = WireWriterPool.acquire(WireSizes.optional(schema, (__boltffi_value_0) -> WireSizes.string(__boltffi_value_0)));
@@ -29,50 +32,59 @@ public final class Encoding implements AutoCloseable {
     }
 
     public Encoding() {
-        this(Encoding.__boltffiCreateHandle1());
+        this(new java.util.concurrent.atomic.AtomicLong(Encoding.__boltffiCreateHandle1()));
     }
+
 
     private static long __boltffiCreateHandle1() {
         return Native.boltffi_init_class_zenoh_ffi_encoding_encoding_text_plain();
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("Encoding is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("Encoding is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("Encoding is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_encoding_encoding(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_encoding_encoding(__boltffi_handle);
     }
 
     public static Encoding applicationOctetStream() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_octet_stream());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_octet_stream());
     }
 
     public static Encoding applicationJson() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_json());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_json());
     }
 
     public static Encoding textJson() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_text_json());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_text_json());
     }
 
     public static Encoding applicationInteger() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_integer());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_integer());
     }
 
     public static Encoding applicationFloat() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_float());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_float());
     }
 
     public static Encoding applicationXml() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_xml());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_xml());
     }
 
     public static Encoding applicationYaml() {
-        return new Encoding(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_yaml());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_yaml());
     }
 
     /**

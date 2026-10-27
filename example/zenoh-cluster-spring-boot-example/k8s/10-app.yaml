@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zenoh-demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zenoh-peers
+  namespace: zenoh-demo
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: zenoh-cluster-app
+  ports:
+    - name: zenoh
+      port: 7447
+      targetPort: zenoh
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zenoh-cluster-app
+  namespace: zenoh-demo
+  labels:
+    app: zenoh-cluster-app
+spec:
+  type: ClusterIP
+  selector:
+    app: zenoh-cluster-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zenoh-cluster-app
+  namespace: zenoh-demo
+  labels:
+    app: zenoh-cluster-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: zenoh-cluster-app
+  template:
+    metadata:
+      labels:
+        app: zenoh-cluster-app
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: zenoh-cluster-app
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: app
+          # Package the Linux JNI library matching the container architecture before building the image.
+          image: your-registry/zenoh-cluster-spring-boot-example:1.0.0-SNAPSHOT
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: zenoh
+              containerPort: 7447
+              protocol: TCP
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: ZENOH_CLUSTER_APP_NAME
+              value: zenoh-demo
+            - name: ZENOH_ENVIRONMENT
+              value: prod
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"

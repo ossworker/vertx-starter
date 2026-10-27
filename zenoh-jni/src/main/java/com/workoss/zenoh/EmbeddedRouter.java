@@ -1,13 +1,15 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class EmbeddedRouter implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    EmbeddedRouter(long handle) {
+    private EmbeddedRouter(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("EmbeddedRouter handle must not be zero");
         this.handle = handle;
+    }
+
+    static EmbeddedRouter __boltffiFromHandle(long handle) {
+        return new EmbeddedRouter(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
@@ -15,8 +17,9 @@ public final class EmbeddedRouter implements AutoCloseable {
      * Required by boltffi for opaque type instantiation.
      */
     public EmbeddedRouter() {
-        this(EmbeddedRouter.__boltffiCreateHandle0());
+        this(new java.util.concurrent.atomic.AtomicLong(EmbeddedRouter.__boltffiCreateHandle0()));
     }
+
 
     private static long __boltffiCreateHandle0() {
         return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_new();
@@ -34,14 +37,15 @@ public final class EmbeddedRouter implements AutoCloseable {
      * ```
      */
     public EmbeddedRouter(Config config) {
-        this(EmbeddedRouter.__boltffiCreateHandle1(config));
+        this(new java.util.concurrent.atomic.AtomicLong(EmbeddedRouter.__boltffiCreateHandle1(config)));
     }
+
 
     private static long __boltffiCreateHandle1(Config config) {
         try {
     return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start(config.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
-    throw new RuntimeException("Constructor failed");
+    throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
 }
     }
 
@@ -67,8 +71,9 @@ public final class EmbeddedRouter implements AutoCloseable {
      * ```
      */
     public EmbeddedRouter(String json5Config) {
-        this(EmbeddedRouter.__boltffiCreateHandle2(json5Config));
+        this(new java.util.concurrent.atomic.AtomicLong(EmbeddedRouter.__boltffiCreateHandle2(json5Config)));
     }
+
 
     private static long __boltffiCreateHandle2(String json5Config) {
         WireLease __boltffi_json5Config_wire = WireWriterPool.acquire(WireSizes.string(json5Config));
@@ -78,22 +83,30 @@ public final class EmbeddedRouter implements AutoCloseable {
     try {
         return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_with_json5(__boltffi_json5Config_wire.directBuffer(), __boltffi_json5Config_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
-        throw new RuntimeException("Constructor failed");
+        throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
 } finally {
     __boltffi_json5Config_wire.close();
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("EmbeddedRouter is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("EmbeddedRouter is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("EmbeddedRouter is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_router_embedded_router(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_router_embedded_router(__boltffi_handle);
     }
 
     /**
@@ -104,7 +117,7 @@ public final class EmbeddedRouter implements AutoCloseable {
      */
     public static EmbeddedRouter startDefault() {
         try {
-    return new EmbeddedRouter(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_default());
+    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_default());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -115,7 +128,7 @@ public final class EmbeddedRouter implements AutoCloseable {
      */
     public static EmbeddedRouter startPeer(Config config) {
         try {
-    return new EmbeddedRouter(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_peer(config.rawHandle()));
+    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_peer(config.rawHandle()));
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }

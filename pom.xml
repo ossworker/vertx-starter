@@ -17,6 +17,7 @@
         <module>vertx-spring-boot-web-server</module>
         <module>vertx-spring-boot-web-client</module>
         <module>vertx-spring-boot-cluster-zenoh</module>
+        <module>spring-boot-zenoh-cluster</module>
         <module>vertx-spring-boot-data-dict</module>
         <module>vertx-spring-boot-mybatis</module>
         <module>vertx-spring-boot-starter</module>
@@ -31,7 +32,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <spring-boot.version>3.5.16</spring-boot.version>
-        <vertx.version>5.2.0</vertx.version>
+        <vertx.version>5.2.1</vertx.version>
         <mybatis.version>3.5.19</mybatis.version>
         <mybatis-spring.version>3.0.6</mybatis-spring.version>
         <mybatis-spring-boot.version>3.0.5</mybatis-spring-boot.version>
@@ -73,12 +74,12 @@
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-core</artifactId>
-                <version>2.24.3</version>
+                <version>2.26.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.logging.log4j</groupId>
                 <artifactId>log4j-api</artifactId>
-                <version>2.24.3</version>
+                <version>2.26.1</version>
             </dependency>
 
             <!-- Internal modules -->
@@ -100,6 +101,11 @@
             <dependency>
                 <groupId>com.workoss.boot.vertx</groupId>
                 <artifactId>vertx-spring-boot-cluster-zenoh</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.workoss.boot</groupId>
+                <artifactId>spring-boot-zenoh-cluster</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
@@ -138,7 +144,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
+                    <version>3.16.0</version>
                     <configuration>
                         <source>${java.version}</source>
                         <target>${java.version}</target>
@@ -148,7 +154,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.2</version>
+                    <version>3.6.0</version>
                 </plugin>
             </plugins>
         </pluginManagement>

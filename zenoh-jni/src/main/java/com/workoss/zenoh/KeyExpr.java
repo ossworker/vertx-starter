@@ -1,21 +1,24 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class KeyExpr implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    KeyExpr(long handle) {
+    private KeyExpr(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("KeyExpr handle must not be zero");
         this.handle = handle;
+    }
+
+    static KeyExpr __boltffiFromHandle(long handle) {
+        return new KeyExpr(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
      * Create a new key expression
      */
     public KeyExpr(String expr) {
-        this(KeyExpr.__boltffiCreateHandle0(expr));
+        this(new java.util.concurrent.atomic.AtomicLong(KeyExpr.__boltffiCreateHandle0(expr)));
     }
+
 
     private static long __boltffiCreateHandle0(String expr) {
         WireLease __boltffi_expr_wire = WireWriterPool.acquire(WireSizes.string(expr));
@@ -25,22 +28,30 @@ public final class KeyExpr implements AutoCloseable {
     try {
         return Native.boltffi_init_class_zenoh_ffi_key_expr_key_expr_new(__boltffi_expr_wire.directBuffer(), __boltffi_expr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
-        throw new RuntimeException("Constructor failed");
+        throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
 } finally {
     __boltffi_expr_wire.close();
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("KeyExpr is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("KeyExpr is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("KeyExpr is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_key_expr_key_expr(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_key_expr_key_expr(__boltffi_handle);
     }
 
     /**

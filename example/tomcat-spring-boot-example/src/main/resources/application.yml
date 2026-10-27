@@ -1,0 +1,27 @@
+
+
+spring:
+  application:
+    name: tomcat-spring-boot-example
+  profiles:
+    active: instance1
+
+
+logging:
+  level:
+    root: info
+    com.workoss.boot.vertx: debug
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+

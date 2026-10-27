@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -62,15 +61,9 @@ public class ZenohClusterManager implements ClusterManager {
     // Replicated in-process store backing shared maps, locks and counters
     private ZenohMapStore mapStore;
 
-    // EventBus components
-    private ZenohMessageCodec messageCodec;
-    private ZenohEventBusPublisher eventBusPublisher;
-    private ZenohEventBusSender eventBusSender;
-    private ZenohEventBusSubscriber eventBusSubscriber;
+    private ClusterRegistrationTable registrationTable;
 
     private final List<String> knownNodes = new CopyOnWriteArrayList<>();
-    private final Map<String, NodeInfo> nodeInfoMap = new ConcurrentHashMap<>();
-    private final Map<String, List<RegistrationInfo>> registrations = new ConcurrentHashMap<>();
 
     private volatile boolean active = false;
 
@@ -78,6 +71,12 @@ public class ZenohClusterManager implements ClusterManager {
         this.properties = properties;
         this.keyPrefix = new KeyPrefixStrategy(properties.getAppName(), properties.getEnvironment());
         this.nodeId = UUID.randomUUID().toString();
+        // Created eagerly: VertxImpl.initClustered calls registrationListener() before init(),
+        // so anything the SPI may touch has to exist from construction onwards.
+        this.registrationTable = new ClusterRegistrationTable(keyPrefix, nodeId);
+        if (registrationListener != null) {
+            this.registrationTable.setRegistrationListener(registrationListener);
+        }
     }
 
     @Override
@@ -135,21 +134,16 @@ public class ZenohClusterManager implements ClusterManager {
     @Override
     public void registrationListener(RegistrationListener listener) {
         this.registrationListener = listener;
+        // Vert.x calls this before init(), so the table must already exist — hence it is built in
+        // the constructor rather than here.
+        this.registrationTable.setRegistrationListener(listener);
     }
 
     @Override
     public void setNodeInfo(NodeInfo nodeInfo, Completable<Void> completable) {
         this.nodeInfo = nodeInfo;
-        nodeInfoMap.put(nodeId, nodeInfo);
-        String key = keyPrefix.nodeInfoKey(nodeId);
-        logger.debug("Publishing node info to key: {}", key);
-        if (zenohSession != null) {
-            try {
-                zenohSession.put(key, nodeInfo.toString().getBytes(StandardCharsets.UTF_8));
-            } catch (Exception e) {
-                logger.warn("Failed to publish node info to Zenoh", e);
-            }
-        }
+        // Publishes to Zenoh and caches locally; peers resolve it back via getNodeInfo(nodeId).
+        this.registrationTable.setLocalNodeInfo(nodeInfo);
         completable.succeed();
     }
 
@@ -160,7 +154,7 @@ public class ZenohClusterManager implements ClusterManager {
 
     @Override
     public void getNodeInfo(String nodeId, Completable<NodeInfo> completable) {
-        NodeInfo info = nodeInfoMap.get(nodeId);
+        NodeInfo info = registrationTable.nodeInfoOf(nodeId);
         if (info != null) {
             completable.succeed(info);
         } else {
@@ -177,6 +171,10 @@ public class ZenohClusterManager implements ClusterManager {
             openZenohSession();
             mapStore.start(zenohSession);
 
+            // Before discovery: a peer that already knows about us may dial back as soon as it sees
+            // our liveliness key, and connect() resolves our NodeInfo through this table.
+            registrationTable.start(zenohSession);
+
             // Declared before the heartbeat so a peer joining concurrently can discover us by
             // querying, not only by waiting for our next periodic put.
             startNodeQueryable();
@@ -185,9 +183,7 @@ public class ZenohClusterManager implements ClusterManager {
 
             // Discover nodes that were already alive before we subscribed
             discoverExistingNodes();
-
-            // Initialize EventBus components
-            initializeEventBusComponents();
+            registrationTable.discoverExistingNodeInfos();
 
             knownNodes.add(nodeId);
             active = true;
@@ -203,7 +199,9 @@ public class ZenohClusterManager implements ClusterManager {
     public void leave(Completable<Void> completable) {
         logger.info("Leaving Zenoh cluster, nodeId={}", nodeId);
         try {
-            cleanupEventBusComponents();
+            if (registrationTable != null) {
+                registrationTable.stop();
+            }
             mapStore.stop();
             stopNodeQueryable();
             stopLivelinessHeartbeat();
@@ -225,40 +223,22 @@ public class ZenohClusterManager implements ClusterManager {
     @Override
     public void addRegistration(String address, RegistrationInfo registrationInfo, Completable<Void> completable) {
         logger.debug("Adding registration for address={}, nodeId={}", address, registrationInfo.nodeId());
-        registrations.computeIfAbsent(address, k -> new CopyOnWriteArrayList<>()).add(registrationInfo);
-        String key = keyPrefix.registrationKey(address, registrationInfo.nodeId());
-        if (zenohSession != null) {
-            try {
-                zenohSession.put(key, address.getBytes(StandardCharsets.UTF_8));
-            } catch (Exception e) {
-                logger.warn("Failed to publish registration to Zenoh", e);
-            }
-        }
+        registrationTable.addRegistration(address, registrationInfo);
         completable.succeed();
     }
 
     @Override
     public void removeRegistration(String address, RegistrationInfo registrationInfo, Completable<Void> completable) {
         logger.debug("Removing registration for address={}, nodeId={}", address, registrationInfo.nodeId());
-        List<RegistrationInfo> regs = registrations.get(address);
-        if (regs != null) {
-            regs.remove(registrationInfo);
-        }
-        String key = keyPrefix.registrationKey(address, registrationInfo.nodeId());
-        if (zenohSession != null) {
-            try {
-                zenohSession.delete(key);
-            } catch (Exception e) {
-                logger.warn("Failed to delete registration from Zenoh", e);
-            }
-        }
+        registrationTable.removeRegistration(address, registrationInfo);
         completable.succeed();
     }
 
     @Override
     public void getRegistrations(String address, Completable<List<RegistrationInfo>> completable) {
-        List<RegistrationInfo> regs = registrations.getOrDefault(address, List.of());
-        completable.succeed(List.copyOf(regs));
+        // Must span the whole cluster: DefaultNodeSelector turns this into publish targets, so a
+        // local-only answer silently confines every clustered message to this JVM.
+        completable.succeed(registrationTable.registrationsOf(address));
     }
 
     public KeyPrefixStrategy getKeyPrefix() {
@@ -270,6 +250,23 @@ public class ZenohClusterManager implements ClusterManager {
      */
     public Session getZenohSession() {
         return zenohSession;
+    }
+
+    /**
+     * Synchronous view of {@link #getRegistrations(String, Completable)} for diagnostics and tests.
+     * The SPI stays callback-based; nothing on the Vert.x hot path should use this.
+     */
+    public List<RegistrationInfo> getRegistrationsOf(String address) {
+        return registrationTable.registrationsOf(address);
+    }
+
+    /**
+     * Synchronous view of {@link #getNodeInfo(String, Completable)} for diagnostics and tests.
+     *
+     * @return the peer's info, or {@code null} when it has not been learned yet
+     */
+    public NodeInfo getNodeInfoOf(String nodeId) {
+        return registrationTable.nodeInfoOf(nodeId);
     }
 
     // --- Private Zenoh interaction methods ---
@@ -373,6 +370,10 @@ public class ZenohClusterManager implements ClusterManager {
                 } catch (Exception e) {
                     logger.debug("Heartbeat put failed: {}", e.getMessage());
                 }
+                // A put without a storage manager is a transient notification, not stored state, so
+                // anything a late joiner must see has to be rewritten on the same cadence.
+                registrationTable.republishLocalNodeInfo();
+                registrationTable.republishLocalRegistrations();
                 return null;
             });
         });
@@ -420,6 +421,11 @@ public class ZenohClusterManager implements ClusterManager {
                                 if (nodeListener != null) {
                                     nodeListener.nodeAdded(detectedNodeId);
                                 }
+                                // The newcomer may have published its registrations and NodeInfo
+                                // before this node's subscribers existed. Liveliness is the earliest
+                                // reliable signal that a peer is up; its state converges on the
+                                // next re-publish round.
+                                registrationTable.discoverExistingNodeInfos();
                             }
                         } else if (sample.kind() == 1) { // DELETE
                             if (knownNodes.remove(detectedNodeId)) {
@@ -427,10 +433,9 @@ public class ZenohClusterManager implements ClusterManager {
                                 if (nodeListener != null) {
                                     nodeListener.nodeLeft(detectedNodeId);
                                 }
-                                registrations.values().forEach(regs ->
-                                        regs.removeIf(reg -> detectedNodeId.equals(reg.nodeId()))
-                                );
-                                nodeInfoMap.remove(detectedNodeId);
+                                // Drops its NodeInfo and every registration, and re-fires
+                                // registrationsUpdated so the node selector stops targeting it.
+                                registrationTable.removeNode(detectedNodeId);
                             }
                         }
                     } else {
@@ -586,55 +591,5 @@ public class ZenohClusterManager implements ClusterManager {
     private String extractNodeId(String keyExpr) {
         int lastSlash = keyExpr.lastIndexOf('/');
         return lastSlash >= 0 ? keyExpr.substring(lastSlash + 1) : keyExpr;
-    }
-
-    // --- EventBus component management ---
-
-    private void initializeEventBusComponents() {
-        logger.info("Initializing EventBus components for nodeId: {}", nodeId);
-
-        this.messageCodec = new ZenohMessageCodec();
-        this.eventBusPublisher = new ZenohEventBusPublisher(zenohSession, keyPrefix, messageCodec);
-        this.eventBusSender = new ZenohEventBusSender(zenohSession, keyPrefix, messageCodec, nodeId, registrations);
-        this.eventBusSubscriber = new ZenohEventBusSubscriber(
-                zenohSession, keyPrefix, messageCodec, vertx, nodeId
-        );
-        this.eventBusSubscriber.start();
-
-        logger.info("EventBus components initialized successfully");
-    }
-
-    private void cleanupEventBusComponents() {
-        logger.info("Cleaning up EventBus components");
-
-        if (eventBusSubscriber != null) {
-            eventBusSubscriber.stop();
-            eventBusSubscriber = null;
-        }
-
-        if (eventBusSender != null) {
-            eventBusSender.cleanup();
-            eventBusSender = null;
-        }
-
-        if (eventBusPublisher != null) {
-            eventBusPublisher.close();
-            eventBusPublisher = null;
-        }
-
-        messageCodec = null;
-        logger.info("EventBus components cleaned up");
-    }
-
-    public ZenohEventBusPublisher getEventBusPublisher() {
-        return eventBusPublisher;
-    }
-
-    public ZenohEventBusSender getEventBusSender() {
-        return eventBusSender;
-    }
-
-    public ZenohEventBusSubscriber getEventBusSubscriber() {
-        return eventBusSubscriber;
     }
 }

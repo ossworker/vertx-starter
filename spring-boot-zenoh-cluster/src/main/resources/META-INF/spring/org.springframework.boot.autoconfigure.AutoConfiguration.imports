@@ -1,1 +1,1 @@
-com.workoss.boot.zenoh.cluster.ZenohClusterAutoConfiguration
+com.workoss.boot.zenoh.cluster.autoconfigure.ZenohClusterAutoConfiguration

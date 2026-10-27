@@ -51,6 +51,15 @@ public class VertxServerHttpResponse extends AbstractServerHttpResponse {
     }
 
     @Override
+    public boolean isCommitted() {
+        // A WebSocket upgrade writes the 101 straight through Vert.x and never goes through
+        // commit(), so the inherited state stays NEW while the head is already on the wire. Left
+        // unreported, the error pipeline tries to render a 500 over the upgraded connection and
+        // Vert.x rejects it with "Response head already sent".
+        return super.isCommitted() || response.headWritten();
+    }
+
+    @Override
     protected void applyStatusCode() {
         HttpStatusCode statusCode = getStatusCode();
         if (statusCode != null) {

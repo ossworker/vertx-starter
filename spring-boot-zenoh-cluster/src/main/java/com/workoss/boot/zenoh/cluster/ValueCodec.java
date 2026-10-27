@@ -1,59 +1,33 @@
 package com.workoss.boot.zenoh.cluster;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import com.workoss.boot.zenoh.cluster.internal.BuiltinCodecs;
 
 /**
- * Pluggable codec for shared-map values on the wire. The default is JDK serialization, matching
- * the reference implementation; supply a custom codec (JSON, protobuf, ...) when values must be
- * readable across languages or must not be Java-serialized.
+ * Wire codec for shared-map values.
+ * <p>
+ * {@link #jdk()} deserializes whatever peers send, so it is only appropriate when every node on
+ * the Zenoh network is trusted; prefer a data format codec otherwise.
  *
- * @param <V> the value type
+ * @param <V> value type
  */
 public interface ValueCodec<V> {
 
-    /**
-     * Encode a value for replication.
-     */
     byte[] encode(V value);
 
     /**
-     * Decode a replicated value; may return {@code null} when the payload is unusable.
+     * @return the value, or {@code null} for an unusable payload
      */
     V decode(byte[] data);
 
     /**
-     * Default JDK-serialization codec. Values must implement {@link java.io.Serializable}.
+     * JDK serialization; values must be {@link java.io.Serializable}. Always the same instance.
      */
+    @SuppressWarnings("unchecked")
     static <V> ValueCodec<V> jdk() {
-        return new ValueCodec<>() {
-            @Override
-            public byte[] encode(V value) {
-                try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                     ObjectOutputStream oos = new ObjectOutputStream(bos)) {
-                    oos.writeObject(value);
-                    oos.flush();
-                    return bos.toByteArray();
-                } catch (IOException e) {
-                    throw new IllegalArgumentException("Cannot serialize shared-map value", e);
-                }
-            }
+        return (ValueCodec<V>) BuiltinCodecs.JDK;
+    }
 
-            @SuppressWarnings("unchecked")
-            @Override
-            public V decode(byte[] data) {
-                if (data == null || data.length == 0) {
-                    return null;
-                }
-                try (ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(data))) {
-                    return (V) ois.readObject();
-                } catch (IOException | ClassNotFoundException e) {
-                    return null;
-                }
-            }
-        };
+    static ValueCodec<String> utf8() {
+        return BuiltinCodecs.UTF8;
     }
 }

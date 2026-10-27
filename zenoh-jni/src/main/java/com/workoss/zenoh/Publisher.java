@@ -1,13 +1,15 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class Publisher implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    Publisher(long handle) {
+    private Publisher(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("Publisher handle must not be zero");
         this.handle = handle;
+    }
+
+    static Publisher __boltffiFromHandle(long handle) {
+        return new Publisher(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
@@ -19,8 +21,9 @@ public final class Publisher implements AutoCloseable {
      * for non-`#[data]` opaque types.
      */
     public Publisher(Session session, String keyExpr, java.util.Optional<Byte> congestionControl, java.util.Optional<Byte> priority, java.util.Optional<Boolean> express, java.util.Optional<Byte> reliability) {
-        this(Publisher.__boltffiCreateHandle0(session, keyExpr, congestionControl, priority, express, reliability));
+        this(new java.util.concurrent.atomic.AtomicLong(Publisher.__boltffiCreateHandle0(session, keyExpr, congestionControl, priority, express, reliability)));
     }
+
 
     private static long __boltffiCreateHandle0(Session session, String keyExpr, java.util.Optional<Byte> congestionControl, java.util.Optional<Byte> priority, java.util.Optional<Boolean> express, java.util.Optional<Byte> reliability) {
         WireLease __boltffi_keyExpr_wire = WireWriterPool.acquire(WireSizes.string(keyExpr));
@@ -42,7 +45,7 @@ public final class Publisher implements AutoCloseable {
     try {
         return Native.boltffi_init_class_zenoh_ffi_publisher_publisher_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_congestionControl_wire.directBuffer(), __boltffi_congestionControl_wire.size(), __boltffi_priority_wire.directBuffer(), __boltffi_priority_wire.size(), __boltffi_express_wire.directBuffer(), __boltffi_express_wire.size(), __boltffi_reliability_wire.directBuffer(), __boltffi_reliability_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
-        throw new RuntimeException("Constructor failed");
+        throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
 } finally {
     __boltffi_keyExpr_wire.close();
@@ -53,15 +56,23 @@ public final class Publisher implements AutoCloseable {
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("Publisher is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("Publisher is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("Publisher is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_publisher_publisher(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_publisher_publisher(__boltffi_handle);
     }
 
     /**

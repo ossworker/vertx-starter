@@ -1,12 +1,10 @@
 package com.workoss.boot.vertx;
 
 import com.workoss.boot.vertx.autoconfigure.annotation.EventBusListener;
-import com.workoss.boot.vertx.cluster.zenoh.ZenohEventBusBridge;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.Message;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cache.annotation.EnableCaching;
@@ -22,9 +20,6 @@ public class VertxSpringBootExampleApplication {
 
     @Resource
     private Vertx vertx;
-
-    @Autowired(required = false)
-    private ZenohEventBusBridge eventBusBridge;
 
     public static void main(String[] args) {
         SpringApplication.run(VertxSpringBootExampleApplication.class, args);
@@ -53,17 +48,18 @@ public class VertxSpringBootExampleApplication {
         log.info("收到完整消息: address={}, body={}", message.address(), message.body());
     }
 
+    /**
+     * 集群模式下原生 EventBus 已可跨节点投递：
+     * ZenohClusterManager 复制全集群注册表，DefaultNodeSelector 才能选出远端节点。
+     */
     @GetMapping("/eventbus/pub")
     public void publish(@RequestParam("msg") String msg) {
-        if (eventBusBridge != null) {
-            // 使用桥接器发布，消息会通过 Zenoh 发送到其他节点
-            eventBusBridge.publish("test.address", msg);
-        } else {
-            // 降级到本地 EventBus（非集群模式）
-            vertx.eventBus().publish("test.address", msg);
-        }
+        vertx.eventBus().publish("test.address", msg);
     }
 
+    /**
+     * 点对点发送：节点选择由注册表决定，同地址多消费者时轮询。
+     */
     @GetMapping("/eventbus/send")
     public void send(@RequestParam("msg") String msg) {
         vertx.eventBus().send("test.address", msg);

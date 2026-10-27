@@ -1,2 +1,9 @@
 server:
   port: 8081
+
+# Equal peer in the cluster mesh. Listens on its own localhost port; discovers
+# the other peers via Zenoh multicast scouting (no router, no fixed connect list).
+vertx.cluster.zenoh:
+  mode: peer
+  listen:
+    - "tcp/127.0.0.1:7447"

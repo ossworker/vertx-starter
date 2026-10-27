@@ -1,13 +1,15 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class Config implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    Config(long handle) {
+    private Config(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("Config handle must not be zero");
         this.handle = handle;
+    }
+
+    static Config __boltffiFromHandle(long handle) {
+        return new Config(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
@@ -15,8 +17,9 @@ public final class Config implements AutoCloseable {
      * Required by boltffi for opaque type instantiation.
      */
     public Config() {
-        this(Config.__boltffiCreateHandle0());
+        this(new java.util.concurrent.atomic.AtomicLong(Config.__boltffiCreateHandle0()));
     }
+
 
     private static long __boltffiCreateHandle0() {
         return Native.boltffi_init_class_zenoh_ffi_config_config_new();
@@ -27,8 +30,9 @@ public final class Config implements AutoCloseable {
      * Equivalent to zenoh-java: Config.fromFile(path)
      */
     public Config(String path) {
-        this(Config.__boltffiCreateHandle2(path));
+        this(new java.util.concurrent.atomic.AtomicLong(Config.__boltffiCreateHandle2(path)));
     }
+
 
     private static long __boltffiCreateHandle2(String path) {
         WireLease __boltffi_path_wire = WireWriterPool.acquire(WireSizes.string(path));
@@ -38,22 +42,30 @@ public final class Config implements AutoCloseable {
     try {
         return Native.boltffi_init_class_zenoh_ffi_config_config_from_file(__boltffi_path_wire.directBuffer(), __boltffi_path_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
-        throw new RuntimeException("Constructor failed");
+        throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
 } finally {
     __boltffi_path_wire.close();
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("Config is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("Config is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("Config is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_config_config(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_config_config(__boltffi_handle);
     }
 
     /**
@@ -62,7 +74,7 @@ public final class Config implements AutoCloseable {
      */
     public static Config defaultConfig() {
         try {
-    return new Config(Native.boltffi_init_class_zenoh_ffi_config_config_default_config());
+    return Config.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_config_config_default_config());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -78,13 +90,24 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_json5_writer = __boltffi_json5_wire.writer();
     __boltffi_json5_writer.writeString(json5);
     try {
-        return new Config(Native.boltffi_init_class_zenoh_ffi_config_config_from_json5(__boltffi_json5_wire.directBuffer(), __boltffi_json5_wire.size()));
+        return Config.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_config_config_from_json5(__boltffi_json5_wire.directBuffer(), __boltffi_json5_wire.size()));
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException("Factory constructor failed");
     }
 } finally {
     __boltffi_json5_wire.close();
 }
+    }
+
+    /**
+     * Link protocols this native library was compiled with, e.g. `tcp`, `quic`, `ws`.
+     * An endpoint whose scheme is missing here fails at session open with
+     * `Unsupported protocol`, so callers can validate configuration up front.
+     */
+    public static java.util.List<String> supportedLinkProtocols() {
+        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_config_config_supported_link_protocols();
+        WireReader __boltffi_reader = new WireReader(__boltffi_result);
+        return __boltffi_reader.readStringSequence();
     }
 
     /**
@@ -187,6 +210,26 @@ public final class Config implements AutoCloseable {
     }
 } finally {
     __boltffi_endpoints_wire.close();
+}
+    }
+
+    /**
+     * Restrict the link protocols this node may use (`transport/link/protocols`).
+     * Listen/connect endpoints and scouted locators with any other scheme are rejected.
+     */
+    public void setLinkProtocols(java.util.List<String> protocols) {
+        WireLease __boltffi_protocols_wire = WireWriterPool.acquire(WireSizes.stringSequence(protocols));
+        try {
+    WireWriter __boltffi_protocols_writer = __boltffi_protocols_wire.writer();
+    __boltffi_protocols_writer.writeStringSequence(protocols);
+    try {
+        Native.boltffi_method_class_zenoh_ffi_config_config_set_link_protocols(this.rawHandle(), __boltffi_protocols_wire.directBuffer(), __boltffi_protocols_wire.size());
+    } catch (BoltFfiErrorBufferException __boltffi_error) {
+        WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
+        throw new RuntimeException(__boltffi_error_reader.readString());
+    }
+} finally {
+    __boltffi_protocols_wire.close();
 }
     }
 

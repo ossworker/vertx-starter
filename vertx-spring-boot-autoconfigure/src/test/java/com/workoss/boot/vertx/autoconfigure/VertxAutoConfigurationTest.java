@@ -92,4 +92,34 @@ class VertxAutoConfigurationTest {
                     assertThat(props.getVirtualThreads().isEnabled()).isTrue();
                 });
     }
+
+    /**
+     * The clustered event bus advertises its bind host verbatim as {@code NodeInfo}, so a wildcard
+     * must never reach that field — peers would try to dial {@code 0.0.0.0}.
+     */
+    @Test
+    void wildcardBindHostIsNotAdvertised() {
+        VertxProperties properties = new VertxProperties();
+        properties.getCluster().setHost("0.0.0.0");
+        properties.getCluster().setPublicHost("10.0.0.7");
+
+        VertxOptions options = new VertxOptions();
+        new VertxClusterAutoConfiguration().clusterManagerCustomizer(null, properties).customize(options);
+
+        assertThat(options.getEventBusOptions().getHost()).isNotEqualTo("0.0.0.0");
+        assertThat(options.getEventBusOptions().getClusterPublicHost()).isEqualTo("10.0.0.7");
+    }
+
+    @Test
+    void concreteBindHostIsApplied() {
+        VertxProperties properties = new VertxProperties();
+        properties.getCluster().setHost("127.0.0.1");
+        properties.getCluster().setPort(5701);
+
+        VertxOptions options = new VertxOptions();
+        new VertxClusterAutoConfiguration().clusterManagerCustomizer(null, properties).customize(options);
+
+        assertThat(options.getEventBusOptions().getHost()).isEqualTo("127.0.0.1");
+        assertThat(options.getEventBusOptions().getPort()).isEqualTo(5701);
+    }
 }

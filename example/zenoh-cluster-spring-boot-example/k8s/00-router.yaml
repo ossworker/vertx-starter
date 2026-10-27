@@ -1,0 +1,96 @@
+# =============================================================================
+# Zenoh discovery anchor for k8s
+# -----------------------------------------------------------------------------
+# On Kubernetes, L2 multicast (zenoh's default LAN discovery) does NOT work.
+# The robust "auto mesh" pattern is:
+#   1. Run one or more zenoh ROUTERS as a stable, named Service.
+#   2. Every app pod runs as a PEER and `connect`s to that Service DNS.
+#   3. The router gossips each peer's locator to the others; peers then
+#      auto-connect to each other -> a full mesh, with NO pod IPs hardcoded.
+#   4. Multicast scouting is switched off (--no-multicast-scouting).
+#
+# Verified with zenohd 1.10.1: in peer mode the router is a discovery anchor
+# only - once peers have linked they keep talking even if the router dies.
+# Pin the router image to the SAME zenoh 1.x line as the JNI runtime
+# (our app uses zenoh 1.10.1) to avoid any wire/feature drift.
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zenoh-demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zenoh-router
+  namespace: zenoh-demo
+  labels:
+    app: zenoh-router
+spec:
+  # Headless: DNS returns ALL router pod IPs, so app peers connect to every
+  # router replica (redundant anchors) instead of a single round-robin VIP.
+  clusterIP: None
+  selector:
+    app: zenoh-router
+  ports:
+    - name: zenoh
+      port: 7447
+      targetPort: 7447
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zenoh-router
+  namespace: zenoh-demo
+  labels:
+    app: zenoh-router
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zenoh-router
+  template:
+    metadata:
+      labels:
+        app: zenoh-router
+    spec:
+      # Spread routers across nodes so losing one node cannot take out both.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: zenoh-router
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: zenohd
+          image: ghcr.io/eclipse-zenoh/zenoh:1.10.1
+          # -l  : listen on TCP 7447 (explicit IPv4 so it binds on pods without IPv6)
+          # --no-multicast-scouting : multicast is useless (and noisy) in k8s
+          # gossip stays ON (zenohd default) -> it is what propagates peer locators.
+          args:
+            - "-l"
+            - "tcp/0.0.0.0:7447"
+            - "--no-multicast-scouting"
+          ports:
+            - name: zenoh
+              containerPort: 7447
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 7447
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 7447
+            initialDelaySeconds: 5
+            periodSeconds: 10

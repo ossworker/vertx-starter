@@ -40,7 +40,7 @@ public class DictCacheProperties {
 
     /**
      * L2 Zenoh cache key prefix (relative to the app/env root).
-     * Full key: vertx/{app}/{env}/{prefix}
+     * Full key: zenoh/{app}/{env}/{prefix}
      */
     private String zenohKeyPrefix = "dict";
 
@@ -94,13 +94,13 @@ public class DictCacheProperties {
 
     /**
      * Build the fully qualified Zenoh key prefix with app/env isolation.
-     * Format: vertx/{app}/{env}/{prefix}/
+     * Format: zenoh/{app}/{env}/{prefix}/
      */
     public String resolveZenohPrefix() {
         String app = sanitize(appName != null ? appName : "default");
         String env = sanitize(environment != null ? environment : "default");
         String prefix = sanitize(zenohKeyPrefix);
-        return "vertx/" + app + "/" + env + "/" + prefix + "/";
+        return "zenoh/" + app + "/" + env + "/" + prefix + "/";
     }
 
     private static String sanitize(String input) {

@@ -1,8 +1,11 @@
 package com.workoss.boot.vertx.web.server;
 
+import com.workoss.boot.vertx.web.server.websocket.VertxWebSocketProperties;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.Http2Settings;
 import io.vertx.core.http.HttpServerOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.web.ServerProperties;
 import org.springframework.boot.web.reactive.server.AbstractReactiveWebServerFactory;
 import org.springframework.boot.web.server.Compression;
@@ -29,21 +32,27 @@ import java.util.concurrent.TimeUnit;
  */
 public class VertxReactiveWebServerFactory extends AbstractReactiveWebServerFactory {
 
+    private static final Logger logger = LoggerFactory.getLogger(VertxReactiveWebServerFactory.class);
+
     private final Vertx vertx;
     private final VertxHttpServerProperties vertxProperties;
+    private final VertxWebSocketProperties webSocketProperties;
     private final ServerProperties serverProperties;
 
     public VertxReactiveWebServerFactory(Vertx vertx, VertxHttpServerProperties vertxProperties,
+                                           VertxWebSocketProperties webSocketProperties,
                                            ServerProperties serverProperties) {
         this.vertx = vertx;
         this.vertxProperties = vertxProperties;
+        this.webSocketProperties = webSocketProperties;
         this.serverProperties = serverProperties;
     }
 
     @Override
     public WebServer getWebServer(HttpHandler httpHandler) {
         HttpServerOptions options = buildHttpServerOptions();
-        VertxHttpHandlerAdapter handlerAdapter = new VertxHttpHandlerAdapter(httpHandler);
+        VertxHttpHandlerAdapter handlerAdapter =
+                new VertxHttpHandlerAdapter(httpHandler, webSocketProperties.isEnabled());
         return new VertxWebServer(vertx, options, handlerAdapter);
     }
 
@@ -91,6 +100,28 @@ public class VertxReactiveWebServerFactory extends AbstractReactiveWebServerFact
         options.setMaxChunkSize(vertxProperties.getMaxChunkSize());
         options.setMaxInitialLineLength(vertxProperties.getMaxInitialLineLength());
         options.setAcceptBacklog(vertxProperties.getAcceptBacklog());
+
+        // --- WebSocket properties (vertx.websocket.*) ---
+        if (webSocketProperties.isEnabled()) {
+            options.setMaxWebSocketFrameSize(webSocketProperties.getMaxFrameSize());
+            options.setMaxWebSocketMessageSize(webSocketProperties.getMaxMessageSize());
+            options.setPerMessageWebSocketCompressionSupported(webSocketProperties.isPerMessageCompression());
+            options.setPerFrameWebSocketCompressionSupported(webSocketProperties.isPerFrameCompression());
+            options.setWebSocketCompressionLevel(webSocketProperties.getCompressionLevel());
+            options.setWebSocketAllowServerNoContext(webSocketProperties.isAllowServerNoContext());
+            options.setWebSocketPreferredClientNoContext(webSocketProperties.isPreferredClientNoContext());
+            options.setWebSocketClosingTimeout(webSocketProperties.getClosingTimeout());
+            // Vert.x registers an event bus write handler per connection only when the socket bridge
+            // is used; this starter routes messages through Spring's WebSocketHandler instead.
+            options.setRegisterWebSocketWriteHandlers(false);
+            for (String subProtocol : webSocketProperties.getSubProtocols()) {
+                options.addWebSocketSubProtocol(subProtocol);
+            }
+            if (http2Enabled) {
+                logger.warn("server.http2.enabled and vertx.websocket.enabled are both on: Vert.x can only "
+                        + "upgrade HTTP/1.1 requests, so WebSocket handshakes negotiated over h2 will fail");
+            }
+        }
 
         return options;
     }

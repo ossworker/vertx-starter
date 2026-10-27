@@ -1,24 +1,16 @@
 package com.workoss.boot.zenoh.cluster;
 
 /**
- * Listener for cluster membership changes. Register with
- * {@link ZenohClusterManager#addMembershipListener(MembershipListener)}.
- * <p>
- * Callbacks fire on the cluster's internal poll threads; implementations must not block.
+ * Cluster membership changes of peer nodes; this node never reports itself. A peer that restarts
+ * is reported as {@code nodeLeft} for the old incarnation followed by {@code nodeJoined} for the
+ * new one.
  */
 public interface MembershipListener {
 
-    /**
-     * A peer node became visible, either discovered on start or seen joining afterwards.
-     *
-     * @param nodeId the joined node's id
-     */
-    void nodeJoined(String nodeId);
+    void nodeJoined(NodeInfo node);
 
     /**
-     * A peer node left the cluster (liveliness key deleted or expired).
-     *
-     * @param nodeId the departed node's id
+     * Fired on graceful leave and when the node misses heartbeats for the failure timeout.
      */
-    void nodeLeft(String nodeId);
+    void nodeLeft(NodeInfo node);
 }

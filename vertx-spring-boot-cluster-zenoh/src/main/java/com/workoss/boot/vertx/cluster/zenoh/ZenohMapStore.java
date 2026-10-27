@@ -21,7 +21,7 @@ import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
- * In-process replica of the whole {@code vertx/{app}/{env}/cluster/**} keyspace.
+ * In-process replica of the whole {@code zenoh/{app}/{env}/cluster/**} keyspace.
  * <p>
  * Replaces the Zenoh storage-manager plugin (filesystem / rocksdb backend). State lives in a
  * {@link ConcurrentHashMap}; Zenoh is used only to move writes between nodes and to let a freshly

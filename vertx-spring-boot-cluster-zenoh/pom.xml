@@ -57,6 +57,18 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!--
+          Test-only, and deliberately not optional: the clustered-WebSocket E2E needs a real HTTP
+          server on the same port as the upgrade. Keeping it in test scope preserves the shipping
+          rule that cluster-zenoh and web-server do not depend on each other, so no Maven cycle.
+        -->
+        <dependency>
+            <groupId>com.workoss.boot.vertx</groupId>
+            <artifactId>vertx-spring-boot-web-server</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

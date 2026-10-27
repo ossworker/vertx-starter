@@ -1,21 +1,24 @@
 package com.workoss.zenoh;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 public final class ZBytes implements AutoCloseable {
-    private final long handle;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong handle;
 
-    ZBytes(long handle) {
+    private ZBytes(java.util.concurrent.atomic.AtomicLong handle) {
+        if (handle.get() == 0) throw new IllegalArgumentException("ZBytes handle must not be zero");
         this.handle = handle;
+    }
+
+    static ZBytes __boltffiFromHandle(long handle) {
+        return new ZBytes(new java.util.concurrent.atomic.AtomicLong(handle));
     }
 
     /**
      * Create from byte array
      */
     public ZBytes(byte[] bytes) {
-        this(ZBytes.__boltffiCreateHandle0(bytes));
+        this(new java.util.concurrent.atomic.AtomicLong(ZBytes.__boltffiCreateHandle0(bytes)));
     }
+
 
     private static long __boltffiCreateHandle0(byte[] bytes) {
         WireLease __boltffi_bytes_wire = WireWriterPool.acquire((4 + bytes.length));
@@ -32,8 +35,9 @@ public final class ZBytes implements AutoCloseable {
      * Create from string
      */
     public ZBytes(String s) {
-        this(ZBytes.__boltffiCreateHandle1(s));
+        this(new java.util.concurrent.atomic.AtomicLong(ZBytes.__boltffiCreateHandle1(s)));
     }
+
 
     private static long __boltffiCreateHandle1(String s) {
         WireLease __boltffi_s_wire = WireWriterPool.acquire(WireSizes.string(s));
@@ -46,15 +50,23 @@ public final class ZBytes implements AutoCloseable {
 }
     }
 
+    long __boltffiTakeHandle() {
+        long value = handle.getAndSet(0);
+        if (value == 0) throw new IllegalStateException("ZBytes is closed");
+        return value;
+    }
+
     long rawHandle() {
-        if (closed.get()) throw new IllegalStateException("ZBytes is closed");
-        return handle;
+        long value = handle.get();
+        if (value == 0) throw new IllegalStateException("ZBytes is closed");
+        return value;
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        Native.boltffi_release_class_zenoh_ffi_bytes_z_bytes(this.handle);
+        long __boltffi_handle = handle.getAndSet(0);
+        if (__boltffi_handle == 0) return;
+        Native.boltffi_release_class_zenoh_ffi_bytes_z_bytes(__boltffi_handle);
     }
 
     /**

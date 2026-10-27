@@ -31,7 +31,15 @@ import org.slf4j.LoggerFactory;
  * fall back to the pool (auto-commit). Likewise, hopping to a non-Vert.x scheduler
  * ({@code publishOn(Schedulers.boundedElastic())}) between begin and the mapper call loses the binding.
  * Keep transactional DB calls on the event loop, or use the Reactor-Context-based reactive API.
+ * <p>
+ * The object-keyed {@code ContextInternal} local methods are deprecated for removal in Vert.x, but are
+ * used deliberately here: unlike a typed {@code ContextLocal} (whose index is fixed when its class
+ * loads, and which therefore throws {@code IllegalArgumentException} if registered after
+ * {@code Vertx.vertx()} sized the per-context local array), the object-keyed map is backed by Vert.x's
+ * bootstrap-registered {@code LOCAL_MAP} and is always addressable. Migration to the typed API is only
+ * safe once this class is guaranteed to load before any {@code Vertx} instance is created.
  */
+@SuppressWarnings({"deprecation", "removal"})
 public final class VertxContextTransactionBridge {
 
     private static final Logger logger = LoggerFactory.getLogger(VertxContextTransactionBridge.class);

@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: zenoh-cluster
+  profiles:
+    active: instance1
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+logging:
+  level:
+    root: info
+    com.workoss.boot.zenoh: debug
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# Nodes see each other only when app-name (default: spring.application.name) and environment match.
+# environment is pinned because each instance runs under its own profile.
+zenoh:
+  cluster:
+    environment: default
+    protocol: quic                  # tcp | udp | tls | quic | ws | unixsock-stream
+    scouting:
+      gossip-enabled: true          # gossip spreads peer locators over established links
+#      multicast-enabled: false     # k8s/WAN: bootstrap via DNS discovery or connect endpoints
+#      gossip-multihop: true        # spread gossip beyond directly connected peers
+#      gossip-autoconnect: "router|peer"   # what discovered peers to autoconnect to
+#    mode: peer                    # peer | client | router
+#    listen: ["0.0.0.0:7447"]      # bare address -> uses `protocol`; empty -> multicast scouting
+#    connect: ["10.0.0.1:7447"]
+#    tls:                          # required for tls / quic
+#      listen-certificate: /etc/zenoh/server-cert.pem
+#      listen-private-key: /etc/zenoh/server-key.pem
+#      root-ca-certificate: /etc/zenoh/ca.pem

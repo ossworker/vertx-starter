@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+zenoh:
+  cluster:
+    environment: ${ZENOH_ENVIRONMENT:prod}
+    node-id: ${POD_NAME}
+    mode: peer
+    protocol: ${ZENOH_PROTOCOL:tcp}
+    listen: ["${POD_IP}:7447"]
+    dns:
+      name: ${ZENOH_DNS_NAME:zenoh-peers.${POD_NAMESPACE}.svc.cluster.local}
+      port: 7447
+      self-address: ${POD_IP}
+      refresh-interval: 5s
+      timeout: 2s
+    scouting:
+      multicast-enabled: false
+      gossip-enabled: true
+      gossip-multihop: true
+      gossip-autoconnect: peer

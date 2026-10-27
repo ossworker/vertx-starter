@@ -1,6 +1,7 @@
 package com.workoss.zenoh;
 
 final class Native {
+    static void ensureInitialized() {}
     static {
         String virtualMachineName = System.getProperty("java.vm.name", "")
             .toLowerCase(java.util.Locale.ROOT);
@@ -77,6 +78,8 @@ final class Native {
 
     static native long boltffi_init_class_zenoh_ffi_config_config_from_json5(java.nio.ByteBuffer json5, int __boltffi_json5_len);
 
+    static native byte[] boltffi_method_class_zenoh_ffi_config_config_supported_link_protocols();
+
     static native void boltffi_method_class_zenoh_ffi_config_config_insert_json5(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len, java.nio.ByteBuffer value, int __boltffi_value_len);
 
     static native byte[] boltffi_method_class_zenoh_ffi_config_config_get_json(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len);
@@ -86,6 +89,8 @@ final class Native {
     static native void boltffi_method_class_zenoh_ffi_config_config_set_listen_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
 
     static native void boltffi_method_class_zenoh_ffi_config_config_set_connect_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
+
+    static native void boltffi_method_class_zenoh_ffi_config_config_set_link_protocols(long receiver, java.nio.ByteBuffer protocols, int __boltffi_protocols_len);
 
     static native void boltffi_method_class_zenoh_ffi_config_config_set_plugins_loading_enabled(long receiver, boolean enabled);
 
@@ -100,6 +105,8 @@ final class Native {
     static native void boltffi_release_class_zenoh_ffi_session_session(long handle);
 
     static native long boltffi_init_class_zenoh_ffi_session_session_open(long config);
+
+    static native long boltffi_init_class_zenoh_ffi_session_session_from_router(long router);
 
     static native void boltffi_method_class_zenoh_ffi_session_session_put(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 

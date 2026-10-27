@@ -123,17 +123,25 @@ public class VertxProperties {
         private boolean enabled = false;
 
         /**
-         * The host for cluster communication.
+         * Bind address for the clustered event bus listener. This is a <em>separate</em> listener
+         * from {@code server.port} — Vert.x creates it to carry node-to-node EventBus traffic.
+         * <p>
+         * Leave it unset (or {@code 0.0.0.0}) to bind all interfaces; in that case set
+         * {@link #publicHost} to an address peers can actually dial, since the bind address is not
+         * advertised as-is.
          */
         private String host = "0.0.0.0";
 
         /**
-         * The port for cluster communication. 0 means auto-assign.
+         * Port for the clustered event bus listener. {@code 0} lets Vert.x pick a free port, which
+         * is fine when every node can reach every other node on any port; set a fixed port when a
+         * firewall only permits a known one.
          */
         private int port = 0;
 
         /**
-         * The public host for cluster communication (useful behind NAT).
+         * Address peers should use to reach this node's event bus listener. Required when
+         * {@link #host} is a wildcard, and typically set when running behind NAT.
          */
         private String publicHost;
 
