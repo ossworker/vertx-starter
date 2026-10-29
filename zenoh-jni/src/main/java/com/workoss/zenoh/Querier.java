@@ -1,5 +1,9 @@
 package com.workoss.zenoh;
 
+    /**
+     * A Zenoh querier for performing get operations.
+     * Equivalent to zenoh-java: Querier
+     */
 public final class Querier implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -27,7 +31,7 @@ public final class Querier implements AutoCloseable {
     WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
     __boltffi_keyExpr_writer.writeString(keyExpr);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_querier_querier_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi7Querier7declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -52,7 +56,7 @@ public final class Querier implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_querier_querier(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi7Querier(__boltffi_handle);
     }
 
     /**
@@ -61,7 +65,7 @@ public final class Querier implements AutoCloseable {
      */
     public java.util.List<Reply> get() {
         try {
-    byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_querier_querier_get(this.rawHandle());
+    byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi7Querier3get(this.rawHandle());
     WireReader __boltffi_reader = new WireReader(__boltffi_result);
     return __boltffi_reader.readSequence(() -> Reply.fromReader(__boltffi_reader));
 } catch (BoltFfiErrorBufferException __boltffi_error) {
@@ -79,7 +83,7 @@ public final class Querier implements AutoCloseable {
     WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
     __boltffi_payload_writer.writeBytes(payload);
     try {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_querier_querier_get_with_payload(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi7Querier16get_with_payload(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readSequence(() -> Reply.fromReader(__boltffi_reader));
     } catch (BoltFfiErrorBufferException __boltffi_error) {
@@ -95,7 +99,7 @@ public final class Querier implements AutoCloseable {
      * Get the key expression for this querier.
      */
     public String getKeyExpr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_querier_querier_get_key_expr(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi7Querier12get_key_expr(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }

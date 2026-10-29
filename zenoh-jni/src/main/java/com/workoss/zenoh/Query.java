@@ -1,5 +1,9 @@
 package com.workoss.zenoh;
 
+    /**
+     * Represents an incoming query received by a Queryable.
+     * Provides methods to inspect the query and send replies.
+     */
 public final class Query implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -24,7 +28,7 @@ public final class Query implements AutoCloseable {
 
     private static long __boltffiCreateHandle0(Queryable queryable) {
         try {
-    return Native.boltffi_init_class_zenoh_ffi_query_query_recv(queryable.rawHandle());
+    return Native.boltffi_init_class_9zenoh_ffi5Query4recv(queryable.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
 }
@@ -46,7 +50,7 @@ public final class Query implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_query_query(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi5Query(__boltffi_handle);
     }
 
     /**
@@ -55,7 +59,7 @@ public final class Query implements AutoCloseable {
      */
     public static Query tryRecv(Queryable queryable) {
         try {
-    return Query.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_query_query_try_recv(queryable.rawHandle()));
+    return Query.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi5Query8try_recv(queryable.rawHandle()));
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -65,7 +69,7 @@ public final class Query implements AutoCloseable {
      * Get the key expression of this query.
      */
     public String getKeyExpr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_query_query_get_key_expr(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi5Query12get_key_expr(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -74,7 +78,7 @@ public final class Query implements AutoCloseable {
      * Get the query parameters (selector part after '?').
      */
     public String getParameters() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_query_query_get_parameters(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi5Query14get_parameters(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -83,7 +87,7 @@ public final class Query implements AutoCloseable {
      * Get the query payload if present.
      */
     public java.util.Optional<byte[]> getPayload() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_query_query_get_payload(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi5Query11get_payload(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readOptional(() -> __boltffi_reader.readBytes());
     }
@@ -101,7 +105,7 @@ public final class Query implements AutoCloseable {
     WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
     __boltffi_payload_writer.writeBytes(payload);
     try {
-        Native.boltffi_method_class_zenoh_ffi_query_query_reply(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi5Query5reply(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -122,7 +126,7 @@ public final class Query implements AutoCloseable {
     WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
     __boltffi_payload_writer.writeBytes(payload);
     try {
-        Native.boltffi_method_class_zenoh_ffi_query_query_reply_err(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi5Query9reply_err(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());

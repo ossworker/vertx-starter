@@ -1,5 +1,9 @@
 package com.workoss.zenoh;
 
+    /**
+     * Zenoh configuration - supports JSON5 format compatible with zenohd.
+     * Wraps zenoh::Config to provide FFI-safe access.
+     */
 public final class Config implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -22,7 +26,7 @@ public final class Config implements AutoCloseable {
 
 
     private static long __boltffiCreateHandle0() {
-        return Native.boltffi_init_class_zenoh_ffi_config_config_new();
+        return Native.boltffi_init_class_9zenoh_ffi6Config3new();
     }
 
     /**
@@ -40,7 +44,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_path_writer = __boltffi_path_wire.writer();
     __boltffi_path_writer.writeString(path);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_config_config_from_file(__boltffi_path_wire.directBuffer(), __boltffi_path_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi6Config9from_file(__boltffi_path_wire.directBuffer(), __boltffi_path_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -65,7 +69,7 @@ public final class Config implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_config_config(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi6Config(__boltffi_handle);
     }
 
     /**
@@ -74,7 +78,7 @@ public final class Config implements AutoCloseable {
      */
     public static Config defaultConfig() {
         try {
-    return Config.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_config_config_default_config());
+    return Config.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi6Config14default_config());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -90,7 +94,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_json5_writer = __boltffi_json5_wire.writer();
     __boltffi_json5_writer.writeString(json5);
     try {
-        return Config.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_config_config_from_json5(__boltffi_json5_wire.directBuffer(), __boltffi_json5_wire.size()));
+        return Config.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi6Config10from_json5(__boltffi_json5_wire.directBuffer(), __boltffi_json5_wire.size()));
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException("Factory constructor failed");
     }
@@ -105,7 +109,7 @@ public final class Config implements AutoCloseable {
      * `Unsupported protocol`, so callers can validate configuration up front.
      */
     public static java.util.List<String> supportedLinkProtocols() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_config_config_supported_link_protocols();
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi6Config24supported_link_protocols();
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readStringSequence();
     }
@@ -123,7 +127,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_value_writer = __boltffi_value_wire.writer();
     __boltffi_value_writer.writeString(value);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_insert_json5(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size(), __boltffi_value_wire.directBuffer(), __boltffi_value_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config12insert_json5(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size(), __boltffi_value_wire.directBuffer(), __boltffi_value_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -143,7 +147,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_key_writer = __boltffi_key_wire.writer();
     __boltffi_key_writer.writeString(key);
     try {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_config_config_get_json(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi6Config8get_json(this.rawHandle(), __boltffi_key_wire.directBuffer(), __boltffi_key_wire.size());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     } catch (BoltFfiErrorBufferException __boltffi_error) {
@@ -164,7 +168,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_mode_writer = __boltffi_mode_wire.writer();
     __boltffi_mode_writer.writeString(mode);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_set_mode(this.rawHandle(), __boltffi_mode_wire.directBuffer(), __boltffi_mode_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config8set_mode(this.rawHandle(), __boltffi_mode_wire.directBuffer(), __boltffi_mode_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -184,7 +188,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_endpoints_writer = __boltffi_endpoints_wire.writer();
     __boltffi_endpoints_writer.writeStringSequence(endpoints);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_set_listen_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config20set_listen_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -203,7 +207,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_endpoints_writer = __boltffi_endpoints_wire.writer();
     __boltffi_endpoints_writer.writeStringSequence(endpoints);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_set_connect_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config21set_connect_endpoints(this.rawHandle(), __boltffi_endpoints_wire.directBuffer(), __boltffi_endpoints_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -223,7 +227,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_protocols_writer = __boltffi_protocols_wire.writer();
     __boltffi_protocols_writer.writeStringSequence(protocols);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_set_link_protocols(this.rawHandle(), __boltffi_protocols_wire.directBuffer(), __boltffi_protocols_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config18set_link_protocols(this.rawHandle(), __boltffi_protocols_wire.directBuffer(), __boltffi_protocols_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -238,7 +242,7 @@ public final class Config implements AutoCloseable {
      */
     public void setPluginsLoadingEnabled(boolean enabled) {
         try {
-    Native.boltffi_method_class_zenoh_ffi_config_config_set_plugins_loading_enabled(this.rawHandle(), enabled);
+    Native.boltffi_method_class_9zenoh_ffi6Config27set_plugins_loading_enabled(this.rawHandle(), enabled);
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -254,7 +258,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_dirs_writer = __boltffi_dirs_wire.writer();
     __boltffi_dirs_writer.writeStringSequence(dirs);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_set_plugins_search_dirs(this.rawHandle(), __boltffi_dirs_wire.directBuffer(), __boltffi_dirs_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config23set_plugins_search_dirs(this.rawHandle(), __boltffi_dirs_wire.directBuffer(), __boltffi_dirs_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -273,7 +277,7 @@ public final class Config implements AutoCloseable {
      */
     public void setDefaultPluginsSearchDirs() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_config_config_set_default_plugins_search_dirs(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi6Config31set_default_plugins_search_dirs(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -289,7 +293,7 @@ public final class Config implements AutoCloseable {
     WireWriter __boltffi_dir_writer = __boltffi_dir_wire.writer();
     __boltffi_dir_writer.writeString(dir);
     try {
-        Native.boltffi_method_class_zenoh_ffi_config_config_add_plugins_search_dir(this.rawHandle(), __boltffi_dir_wire.directBuffer(), __boltffi_dir_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi6Config22add_plugins_search_dir(this.rawHandle(), __boltffi_dir_wire.directBuffer(), __boltffi_dir_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -307,7 +311,7 @@ public final class Config implements AutoCloseable {
      */
     public void ensureDefaultPluginsSearchDirs() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_config_config_ensure_default_plugins_search_dirs(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi6Config34ensure_default_plugins_search_dirs(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());

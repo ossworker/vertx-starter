@@ -20,191 +20,191 @@ final class Native {
 
     private Native() {}
 
-    static native void boltffi_release_class_zenoh_ffi_key_expr_key_expr(long handle);
+    static native void boltffi_release_class_9zenoh_ffi6Config(long handle);
 
-    static native long boltffi_init_class_zenoh_ffi_key_expr_key_expr_new(java.nio.ByteBuffer expr, int __boltffi_expr_len);
+    static native long boltffi_init_class_9zenoh_ffi6Config3new();
 
-    static native byte[] boltffi_method_class_zenoh_ffi_key_expr_key_expr_as_str(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi6Config9from_file(java.nio.ByteBuffer path, int __boltffi_path_len);
 
-    static native boolean boltffi_method_class_zenoh_ffi_key_expr_key_expr_intersects(long receiver, long other);
+    static native long boltffi_init_class_9zenoh_ffi6Config14default_config();
 
-    static native boolean boltffi_method_class_zenoh_ffi_key_expr_key_expr_includes(long receiver, long other);
+    static native long boltffi_init_class_9zenoh_ffi6Config10from_json5(java.nio.ByteBuffer json5, int __boltffi_json5_len);
 
-    static native void boltffi_release_class_zenoh_ffi_encoding_encoding(long handle);
+    static native byte[] boltffi_method_class_9zenoh_ffi6Config24supported_link_protocols();
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_new(short id, java.nio.ByteBuffer schema, int __boltffi_schema_len);
+    static native void boltffi_method_class_9zenoh_ffi6Config12insert_json5(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len, java.nio.ByteBuffer value, int __boltffi_value_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_text_plain();
+    static native byte[] boltffi_method_class_9zenoh_ffi6Config8get_json(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_octet_stream();
+    static native void boltffi_method_class_9zenoh_ffi6Config8set_mode(long receiver, java.nio.ByteBuffer mode, int __boltffi_mode_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_json();
+    static native void boltffi_method_class_9zenoh_ffi6Config20set_listen_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_text_json();
+    static native void boltffi_method_class_9zenoh_ffi6Config21set_connect_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_integer();
+    static native void boltffi_method_class_9zenoh_ffi6Config18set_link_protocols(long receiver, java.nio.ByteBuffer protocols, int __boltffi_protocols_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_float();
+    static native void boltffi_method_class_9zenoh_ffi6Config27set_plugins_loading_enabled(long receiver, boolean enabled);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_xml();
+    static native void boltffi_method_class_9zenoh_ffi6Config23set_plugins_search_dirs(long receiver, java.nio.ByteBuffer dirs, int __boltffi_dirs_len);
 
-    static native long boltffi_init_class_zenoh_ffi_encoding_encoding_application_yaml();
+    static native void boltffi_method_class_9zenoh_ffi6Config31set_default_plugins_search_dirs(long receiver);
 
-    static native short boltffi_method_class_zenoh_ffi_encoding_encoding_get_id(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi6Config22add_plugins_search_dir(long receiver, java.nio.ByteBuffer dir, int __boltffi_dir_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_encoding_encoding_get_schema(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi6Config34ensure_default_plugins_search_dirs(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_bytes_z_bytes(long handle);
+    static native void boltffi_release_class_9zenoh_ffi14EmbeddedRouter(long handle);
 
-    static native long boltffi_init_class_zenoh_ffi_bytes_z_bytes_from_bytes(java.nio.ByteBuffer bytes, int __boltffi_bytes_len);
+    static native long boltffi_init_class_9zenoh_ffi14EmbeddedRouter3new();
 
-    static native long boltffi_init_class_zenoh_ffi_bytes_z_bytes_from_string(java.nio.ByteBuffer s, int __boltffi_s_len);
+    static native long boltffi_init_class_9zenoh_ffi14EmbeddedRouter5start(long config);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_bytes_z_bytes_to_bytes(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi14EmbeddedRouter16start_with_json5(java.nio.ByteBuffer json5_config, int __boltffi_json5_config_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_bytes_z_bytes_to_utf8_string(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi14EmbeddedRouter13start_default();
 
-    static native long boltffi_method_class_zenoh_ffi_bytes_z_bytes_len(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi14EmbeddedRouter10start_peer(long config);
 
-    static native boolean boltffi_method_class_zenoh_ffi_bytes_z_bytes_is_empty(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi14EmbeddedRouter3put(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native void boltffi_release_class_zenoh_ffi_config_config(long handle);
+    static native void boltffi_method_class_9zenoh_ffi14EmbeddedRouter6delete(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
 
-    static native long boltffi_init_class_zenoh_ffi_config_config_new();
+    static native void boltffi_method_class_9zenoh_ffi14EmbeddedRouter12close_router(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_config_config_from_file(java.nio.ByteBuffer path, int __boltffi_path_len);
+    static native boolean boltffi_method_class_9zenoh_ffi14EmbeddedRouter10is_running(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_config_config_default_config();
+    static native byte[] boltffi_method_class_9zenoh_ffi14EmbeddedRouter3zid(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_config_config_from_json5(java.nio.ByteBuffer json5, int __boltffi_json5_len);
+    static native void boltffi_release_class_9zenoh_ffi8Encoding(long handle);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_config_config_supported_link_protocols();
+    static native long boltffi_init_class_9zenoh_ffi8Encoding3new(short id, java.nio.ByteBuffer schema, int __boltffi_schema_len);
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_insert_json5(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len, java.nio.ByteBuffer value, int __boltffi_value_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding10text_plain();
 
-    static native byte[] boltffi_method_class_zenoh_ffi_config_config_get_json(long receiver, java.nio.ByteBuffer key, int __boltffi_key_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding24application_octet_stream();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_mode(long receiver, java.nio.ByteBuffer mode, int __boltffi_mode_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding16application_json();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_listen_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding9text_json();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_connect_endpoints(long receiver, java.nio.ByteBuffer endpoints, int __boltffi_endpoints_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding19application_integer();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_link_protocols(long receiver, java.nio.ByteBuffer protocols, int __boltffi_protocols_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding17application_float();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_plugins_loading_enabled(long receiver, boolean enabled);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding15application_xml();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_plugins_search_dirs(long receiver, java.nio.ByteBuffer dirs, int __boltffi_dirs_len);
+    static native long boltffi_init_class_9zenoh_ffi8Encoding16application_yaml();
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_set_default_plugins_search_dirs(long receiver);
+    static native short boltffi_method_class_9zenoh_ffi8Encoding6get_id(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_add_plugins_search_dir(long receiver, java.nio.ByteBuffer dir, int __boltffi_dir_len);
+    static native byte[] boltffi_method_class_9zenoh_ffi8Encoding10get_schema(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_config_config_ensure_default_plugins_search_dirs(long receiver);
+    static native void boltffi_release_class_9zenoh_ffi7KeyExpr(long handle);
 
-    static native void boltffi_release_class_zenoh_ffi_session_session(long handle);
+    static native long boltffi_init_class_9zenoh_ffi7KeyExpr3new(java.nio.ByteBuffer expr, int __boltffi_expr_len);
 
-    static native long boltffi_init_class_zenoh_ffi_session_session_open(long config);
+    static native byte[] boltffi_method_class_9zenoh_ffi7KeyExpr6as_str(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_session_session_from_router(long router);
+    static native boolean boltffi_method_class_9zenoh_ffi7KeyExpr10intersects(long receiver, long other);
 
-    static native void boltffi_method_class_zenoh_ffi_session_session_put(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native boolean boltffi_method_class_9zenoh_ffi7KeyExpr8includes(long receiver, long other);
 
-    static native void boltffi_method_class_zenoh_ffi_session_session_delete(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
+    static native void boltffi_release_class_9zenoh_ffi9Publisher(long handle);
 
-    static native void boltffi_method_class_zenoh_ffi_session_session_close_session(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi9Publisher7declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer congestion_control, int __boltffi_congestion_control_len, java.nio.ByteBuffer priority, int __boltffi_priority_len, java.nio.ByteBuffer express, int __boltffi_express_len, java.nio.ByteBuffer reliability, int __boltffi_reliability_len);
 
-    static native boolean boltffi_method_class_zenoh_ffi_session_session_is_closed(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi9Publisher3put(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_session_session_zid(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi9Publisher17put_with_encoding(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len, java.nio.ByteBuffer encoding, int __boltffi_encoding_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_session_session_get(long receiver, java.nio.ByteBuffer selector, int __boltffi_selector_len);
+    static native void boltffi_method_class_9zenoh_ffi9Publisher6delete(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_publisher_publisher(long handle);
+    static native void boltffi_method_class_9zenoh_ffi9Publisher9undeclare(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_publisher_publisher_declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer congestion_control, int __boltffi_congestion_control_len, java.nio.ByteBuffer priority, int __boltffi_priority_len, java.nio.ByteBuffer express, int __boltffi_express_len, java.nio.ByteBuffer reliability, int __boltffi_reliability_len);
+    static native byte[] boltffi_method_class_9zenoh_ffi9Publisher12get_key_expr(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_publisher_publisher_put(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native void boltffi_release_class_9zenoh_ffi7Querier(long handle);
 
-    static native void boltffi_method_class_zenoh_ffi_publisher_publisher_put_with_encoding(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len, java.nio.ByteBuffer encoding, int __boltffi_encoding_len);
+    static native long boltffi_init_class_9zenoh_ffi7Querier7declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
 
-    static native void boltffi_method_class_zenoh_ffi_publisher_publisher_delete(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi7Querier3get(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_publisher_publisher_undeclare(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi7Querier16get_with_payload(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_publisher_publisher_get_key_expr(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi7Querier12get_key_expr(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_subscriber_subscriber(long handle);
+    static native void boltffi_release_class_9zenoh_ffi5Query(long handle);
 
-    static native long boltffi_init_class_zenoh_ffi_subscriber_subscriber_declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
+    static native long boltffi_init_class_9zenoh_ffi5Query4recv(long queryable);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_subscriber_subscriber_get_key_expr(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi5Query8try_recv(long queryable);
 
-    static native boolean boltffi_method_class_zenoh_ffi_subscriber_subscriber_is_undeclared(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi5Query12get_key_expr(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_subscriber_subscriber_undeclare(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi5Query14get_parameters(long receiver);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_subscriber_subscriber_recv(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi5Query11get_payload(long receiver);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_subscriber_subscriber_try_recv(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi5Query5reply(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native void boltffi_release_class_zenoh_ffi_queryable_queryable(long handle);
+    static native void boltffi_method_class_9zenoh_ffi5Query9reply_err(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native long boltffi_init_class_zenoh_ffi_queryable_queryable_declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
+    static native void boltffi_release_class_9zenoh_ffi9Queryable(long handle);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_queryable_queryable_get_key_expr(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi9Queryable7declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
 
-    static native boolean boltffi_method_class_zenoh_ffi_queryable_queryable_is_undeclared(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi9Queryable12get_key_expr(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_queryable_queryable_undeclare(long receiver);
+    static native boolean boltffi_method_class_9zenoh_ffi9Queryable13is_undeclared(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_query_query(long handle);
+    static native void boltffi_method_class_9zenoh_ffi9Queryable9undeclare(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_query_query_recv(long queryable);
+    static native void boltffi_release_class_9zenoh_ffi7Session(long handle);
 
-    static native long boltffi_init_class_zenoh_ffi_query_query_try_recv(long queryable);
+    static native long boltffi_init_class_9zenoh_ffi7Session4open(long config);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_query_query_get_key_expr(long receiver);
+    static native long boltffi_init_class_9zenoh_ffi7Session11from_router(long router);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_query_query_get_parameters(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi7Session3put(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_query_query_get_payload(long receiver);
+    static native void boltffi_method_class_9zenoh_ffi7Session6delete(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
 
-    static native void boltffi_method_class_zenoh_ffi_query_query_reply(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native void boltffi_method_class_9zenoh_ffi7Session13close_session(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_query_query_reply_err(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native boolean boltffi_method_class_9zenoh_ffi7Session9is_closed(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_querier_querier(long handle);
+    static native byte[] boltffi_method_class_9zenoh_ffi7Session3zid(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_querier_querier_declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
+    static native byte[] boltffi_method_class_9zenoh_ffi7Session3get(long receiver, java.nio.ByteBuffer selector, int __boltffi_selector_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_querier_querier_get(long receiver);
+    static native void boltffi_release_class_9zenoh_ffi10Subscriber(long handle);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_querier_querier_get_with_payload(long receiver, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native long boltffi_init_class_9zenoh_ffi10Subscriber7declare(long session, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_querier_querier_get_key_expr(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi10Subscriber12get_key_expr(long receiver);
 
-    static native void boltffi_release_class_zenoh_ffi_router_embedded_router(long handle);
+    static native boolean boltffi_method_class_9zenoh_ffi10Subscriber13is_undeclared(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_router_embedded_router_new();
+    static native void boltffi_method_class_9zenoh_ffi10Subscriber9undeclare(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_router_embedded_router_start(long config);
+    static native byte[] boltffi_method_class_9zenoh_ffi10Subscriber4recv(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_router_embedded_router_start_with_json5(java.nio.ByteBuffer json5_config, int __boltffi_json5_config_len);
+    static native byte[] boltffi_method_class_9zenoh_ffi10Subscriber8try_recv(long receiver);
 
-    static native long boltffi_init_class_zenoh_ffi_router_embedded_router_start_default();
+    static native void boltffi_release_class_9zenoh_ffi6ZBytes(long handle);
 
-    static native long boltffi_init_class_zenoh_ffi_router_embedded_router_start_peer(long config);
+    static native long boltffi_init_class_9zenoh_ffi6ZBytes10from_bytes(java.nio.ByteBuffer bytes, int __boltffi_bytes_len);
 
-    static native void boltffi_method_class_zenoh_ffi_router_embedded_router_put(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len, java.nio.ByteBuffer payload, int __boltffi_payload_len);
+    static native long boltffi_init_class_9zenoh_ffi6ZBytes11from_string(java.nio.ByteBuffer s, int __boltffi_s_len);
 
-    static native void boltffi_method_class_zenoh_ffi_router_embedded_router_delete(long receiver, java.nio.ByteBuffer key_expr, int __boltffi_key_expr_len);
+    static native byte[] boltffi_method_class_9zenoh_ffi6ZBytes8to_bytes(long receiver);
 
-    static native void boltffi_method_class_zenoh_ffi_router_embedded_router_close_router(long receiver);
+    static native byte[] boltffi_method_class_9zenoh_ffi6ZBytes14to_utf8_string(long receiver);
 
-    static native boolean boltffi_method_class_zenoh_ffi_router_embedded_router_is_running(long receiver);
+    static native long boltffi_method_class_9zenoh_ffi6ZBytes3len(long receiver);
 
-    static native byte[] boltffi_method_class_zenoh_ffi_router_embedded_router_zid(long receiver);
+    static native boolean boltffi_method_class_9zenoh_ffi6ZBytes8is_empty(long receiver);
 }
 
 final class BoltFFIValueIdentity {

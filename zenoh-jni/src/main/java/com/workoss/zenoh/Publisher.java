@@ -1,5 +1,9 @@
 package com.workoss.zenoh;
 
+    /**
+     * A Zenoh publisher for a specific key expression.
+     * Equivalent to zenoh-java: Publisher
+     */
 public final class Publisher implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -43,7 +47,7 @@ public final class Publisher implements AutoCloseable {
     WireWriter __boltffi_reliability_writer = __boltffi_reliability_wire.writer();
     __boltffi_reliability_writer.writeOptional(reliability, (__boltffi_reliability_value) -> { __boltffi_reliability_writer.writeByte(__boltffi_reliability_value); });
     try {
-        return Native.boltffi_init_class_zenoh_ffi_publisher_publisher_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_congestionControl_wire.directBuffer(), __boltffi_congestionControl_wire.size(), __boltffi_priority_wire.directBuffer(), __boltffi_priority_wire.size(), __boltffi_express_wire.directBuffer(), __boltffi_express_wire.size(), __boltffi_reliability_wire.directBuffer(), __boltffi_reliability_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi9Publisher7declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_congestionControl_wire.directBuffer(), __boltffi_congestionControl_wire.size(), __boltffi_priority_wire.directBuffer(), __boltffi_priority_wire.size(), __boltffi_express_wire.directBuffer(), __boltffi_express_wire.size(), __boltffi_reliability_wire.directBuffer(), __boltffi_reliability_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -72,7 +76,7 @@ public final class Publisher implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_publisher_publisher(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi9Publisher(__boltffi_handle);
     }
 
     /**
@@ -85,7 +89,7 @@ public final class Publisher implements AutoCloseable {
     WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
     __boltffi_payload_writer.writeBytes(payload);
     try {
-        Native.boltffi_method_class_zenoh_ffi_publisher_publisher_put(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi9Publisher3put(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -107,7 +111,7 @@ public final class Publisher implements AutoCloseable {
     WireWriter __boltffi_encoding_writer = __boltffi_encoding_wire.writer();
     __boltffi_encoding_writer.writeString(encoding);
     try {
-        Native.boltffi_method_class_zenoh_ffi_publisher_publisher_put_with_encoding(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size(), __boltffi_encoding_wire.directBuffer(), __boltffi_encoding_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi9Publisher17put_with_encoding(this.rawHandle(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size(), __boltffi_encoding_wire.directBuffer(), __boltffi_encoding_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -124,7 +128,7 @@ public final class Publisher implements AutoCloseable {
      */
     public void delete() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_publisher_publisher_delete(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi9Publisher6delete(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -139,7 +143,7 @@ public final class Publisher implements AutoCloseable {
      */
     public void undeclare() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_publisher_publisher_undeclare(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi9Publisher9undeclare(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -150,7 +154,7 @@ public final class Publisher implements AutoCloseable {
      * Get the key expression this publisher is associated with.
      */
     public String getKeyExpr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_publisher_publisher_get_key_expr(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi9Publisher12get_key_expr(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }

@@ -1,5 +1,8 @@
 package com.workoss.zenoh;
 
+    /**
+     * Key expression for pub/sub addressing
+     */
 public final class KeyExpr implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -26,7 +29,7 @@ public final class KeyExpr implements AutoCloseable {
     WireWriter __boltffi_expr_writer = __boltffi_expr_wire.writer();
     __boltffi_expr_writer.writeString(expr);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_key_expr_key_expr_new(__boltffi_expr_wire.directBuffer(), __boltffi_expr_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi7KeyExpr3new(__boltffi_expr_wire.directBuffer(), __boltffi_expr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -51,14 +54,14 @@ public final class KeyExpr implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_key_expr_key_expr(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi7KeyExpr(__boltffi_handle);
     }
 
     /**
      * Get string representation
      */
     public String asStr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_key_expr_key_expr_as_str(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi7KeyExpr6as_str(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -67,13 +70,13 @@ public final class KeyExpr implements AutoCloseable {
      * Check if this key expression intersects with another
      */
     public boolean intersects(KeyExpr other) {
-        return Native.boltffi_method_class_zenoh_ffi_key_expr_key_expr_intersects(this.rawHandle(), other.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi7KeyExpr10intersects(this.rawHandle(), other.rawHandle());
     }
 
     /**
      * Check if this key expression includes another
      */
     public boolean includes(KeyExpr other) {
-        return Native.boltffi_method_class_zenoh_ffi_key_expr_key_expr_includes(this.rawHandle(), other.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi7KeyExpr8includes(this.rawHandle(), other.rawHandle());
     }
 }

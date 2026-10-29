@@ -1,5 +1,15 @@
 package com.workoss.zenoh;
 
+    /**
+     * An embedded Zenoh router that runs within the application process.
+     * Supports loading plugins (storage_manager, filesystem backend, rocksdb backend)
+     * via JSON5 configuration compatible with zenohd.
+     *
+     * In router mode, this node can:
+     * - Accept connections from peers and clients
+     * - Route messages between connected nodes
+     * - Load and manage storage plugins (zenoh-backend-filesystem, zenoh-backend-rocksdb)
+     */
 public final class EmbeddedRouter implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -22,7 +32,7 @@ public final class EmbeddedRouter implements AutoCloseable {
 
 
     private static long __boltffiCreateHandle0() {
-        return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_new();
+        return Native.boltffi_init_class_9zenoh_ffi14EmbeddedRouter3new();
     }
 
     /**
@@ -43,7 +53,7 @@ public final class EmbeddedRouter implements AutoCloseable {
 
     private static long __boltffiCreateHandle1(Config config) {
         try {
-    return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start(config.rawHandle());
+    return Native.boltffi_init_class_9zenoh_ffi14EmbeddedRouter5start(config.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
 }
@@ -81,7 +91,7 @@ public final class EmbeddedRouter implements AutoCloseable {
     WireWriter __boltffi_json5Config_writer = __boltffi_json5Config_wire.writer();
     __boltffi_json5Config_writer.writeString(json5Config);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_with_json5(__boltffi_json5Config_wire.directBuffer(), __boltffi_json5Config_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi14EmbeddedRouter16start_with_json5(__boltffi_json5Config_wire.directBuffer(), __boltffi_json5Config_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -106,7 +116,7 @@ public final class EmbeddedRouter implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_router_embedded_router(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi14EmbeddedRouter(__boltffi_handle);
     }
 
     /**
@@ -117,7 +127,7 @@ public final class EmbeddedRouter implements AutoCloseable {
      */
     public static EmbeddedRouter startDefault() {
         try {
-    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_default());
+    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi14EmbeddedRouter13start_default());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -128,7 +138,7 @@ public final class EmbeddedRouter implements AutoCloseable {
      */
     public static EmbeddedRouter startPeer(Config config) {
         try {
-    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_router_embedded_router_start_peer(config.rawHandle()));
+    return EmbeddedRouter.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi14EmbeddedRouter10start_peer(config.rawHandle()));
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     throw new RuntimeException("Factory constructor failed");
 }
@@ -147,7 +157,7 @@ public final class EmbeddedRouter implements AutoCloseable {
     WireWriter __boltffi_payload_writer = __boltffi_payload_wire.writer();
     __boltffi_payload_writer.writeBytes(payload);
     try {
-        Native.boltffi_method_class_zenoh_ffi_router_embedded_router_put(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi14EmbeddedRouter3put(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size(), __boltffi_payload_wire.directBuffer(), __boltffi_payload_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -168,7 +178,7 @@ public final class EmbeddedRouter implements AutoCloseable {
     WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
     __boltffi_keyExpr_writer.writeString(keyExpr);
     try {
-        Native.boltffi_method_class_zenoh_ffi_router_embedded_router_delete(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
+        Native.boltffi_method_class_9zenoh_ffi14EmbeddedRouter6delete(this.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
         throw new RuntimeException(__boltffi_error_reader.readString());
@@ -183,7 +193,7 @@ public final class EmbeddedRouter implements AutoCloseable {
      */
     public void closeRouter() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_router_embedded_router_close_router(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi14EmbeddedRouter12close_router(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -194,14 +204,14 @@ public final class EmbeddedRouter implements AutoCloseable {
      * Check if the router is still running (session not closed).
      */
     public boolean isRunning() {
-        return Native.boltffi_method_class_zenoh_ffi_router_embedded_router_is_running(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi14EmbeddedRouter10is_running(this.rawHandle());
     }
 
     /**
      * Get the ZID (Zenoh ID) of this router.
      */
     public String zid() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_router_embedded_router_zid(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi14EmbeddedRouter3zid(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }

@@ -1,5 +1,10 @@
 package com.workoss.zenoh;
 
+    /**
+     * A Zenoh subscriber that receives data on a key expression.
+     * Uses a callback-fed channel so Java/Kotlin side can poll samples via
+     * `recv()` / `try_recv()`.
+     */
 public final class Subscriber implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -31,7 +36,7 @@ public final class Subscriber implements AutoCloseable {
     WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
     __boltffi_keyExpr_writer.writeString(keyExpr);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_subscriber_subscriber_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi10Subscriber7declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -56,14 +61,14 @@ public final class Subscriber implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_subscriber_subscriber(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi10Subscriber(__boltffi_handle);
     }
 
     /**
      * Get the key expression this subscriber is listening on.
      */
     public String getKeyExpr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_get_key_expr(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi10Subscriber12get_key_expr(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -72,7 +77,7 @@ public final class Subscriber implements AutoCloseable {
      * Check if the subscriber has been undeclared.
      */
     public boolean isUndeclared() {
-        return Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_is_undeclared(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi10Subscriber13is_undeclared(this.rawHandle());
     }
 
     /**
@@ -81,7 +86,7 @@ public final class Subscriber implements AutoCloseable {
      */
     public void undeclare() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_undeclare(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi10Subscriber9undeclare(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());
@@ -93,7 +98,7 @@ public final class Subscriber implements AutoCloseable {
      * Returns None if the subscriber has been undeclared or the channel closed.
      */
     public java.util.Optional<Sample> recv() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_recv(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi10Subscriber4recv(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readOptional(() -> Sample.fromReader(__boltffi_reader));
     }
@@ -103,7 +108,7 @@ public final class Subscriber implements AutoCloseable {
      * Returns None if no sample is currently available.
      */
     public java.util.Optional<Sample> tryRecv() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_subscriber_subscriber_try_recv(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi10Subscriber8try_recv(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readOptional(() -> Sample.fromReader(__boltffi_reader));
     }

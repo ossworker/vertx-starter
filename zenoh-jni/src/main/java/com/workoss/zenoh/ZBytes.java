@@ -1,5 +1,8 @@
 package com.workoss.zenoh;
 
+    /**
+     * Zero-copy bytes wrapper for FFI
+     */
 public final class ZBytes implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -25,7 +28,7 @@ public final class ZBytes implements AutoCloseable {
         try {
     WireWriter __boltffi_bytes_writer = __boltffi_bytes_wire.writer();
     __boltffi_bytes_writer.writeBytes(bytes);
-    return Native.boltffi_init_class_zenoh_ffi_bytes_z_bytes_from_bytes(__boltffi_bytes_wire.directBuffer(), __boltffi_bytes_wire.size());
+    return Native.boltffi_init_class_9zenoh_ffi6ZBytes10from_bytes(__boltffi_bytes_wire.directBuffer(), __boltffi_bytes_wire.size());
 } finally {
     __boltffi_bytes_wire.close();
 }
@@ -44,7 +47,7 @@ public final class ZBytes implements AutoCloseable {
         try {
     WireWriter __boltffi_s_writer = __boltffi_s_wire.writer();
     __boltffi_s_writer.writeString(s);
-    return Native.boltffi_init_class_zenoh_ffi_bytes_z_bytes_from_string(__boltffi_s_wire.directBuffer(), __boltffi_s_wire.size());
+    return Native.boltffi_init_class_9zenoh_ffi6ZBytes11from_string(__boltffi_s_wire.directBuffer(), __boltffi_s_wire.size());
 } finally {
     __boltffi_s_wire.close();
 }
@@ -66,14 +69,14 @@ public final class ZBytes implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_bytes_z_bytes(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi6ZBytes(__boltffi_handle);
     }
 
     /**
      * Get as byte array
      */
     public byte[] toBytes() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_bytes_z_bytes_to_bytes(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi6ZBytes8to_bytes(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readBytes();
     }
@@ -82,7 +85,7 @@ public final class ZBytes implements AutoCloseable {
      * Get as UTF-8 string (returns empty string if invalid UTF-8)
      */
     public String toUtf8String() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_bytes_z_bytes_to_utf8_string(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi6ZBytes14to_utf8_string(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -91,13 +94,13 @@ public final class ZBytes implements AutoCloseable {
      * Get the length in bytes
      */
     public long len() {
-        return Native.boltffi_method_class_zenoh_ffi_bytes_z_bytes_len(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi6ZBytes3len(this.rawHandle());
     }
 
     /**
      * Check if empty
      */
     public boolean isEmpty() {
-        return Native.boltffi_method_class_zenoh_ffi_bytes_z_bytes_is_empty(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi6ZBytes8is_empty(this.rawHandle());
     }
 }

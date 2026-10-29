@@ -1,5 +1,9 @@
 package com.workoss.zenoh;
 
+    /**
+     * A Zenoh queryable that answers queries on a key expression.
+     * Equivalent to zenoh-java: Queryable
+     */
 public final class Queryable implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -27,7 +31,7 @@ public final class Queryable implements AutoCloseable {
     WireWriter __boltffi_keyExpr_writer = __boltffi_keyExpr_wire.writer();
     __boltffi_keyExpr_writer.writeString(keyExpr);
     try {
-        return Native.boltffi_init_class_zenoh_ffi_queryable_queryable_declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
+        return Native.boltffi_init_class_9zenoh_ffi9Queryable7declare(session.rawHandle(), __boltffi_keyExpr_wire.directBuffer(), __boltffi_keyExpr_wire.size());
     } catch (BoltFfiErrorBufferException __boltffi_error) {
         throw new RuntimeException(new WireReader(__boltffi_error.bytes()).readString());
     }
@@ -52,14 +56,14 @@ public final class Queryable implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_queryable_queryable(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi9Queryable(__boltffi_handle);
     }
 
     /**
      * Get the key expression this queryable is registered on.
      */
     public String getKeyExpr() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_queryable_queryable_get_key_expr(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi9Queryable12get_key_expr(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readString();
     }
@@ -68,7 +72,7 @@ public final class Queryable implements AutoCloseable {
      * Check if the queryable has been undeclared.
      */
     public boolean isUndeclared() {
-        return Native.boltffi_method_class_zenoh_ffi_queryable_queryable_is_undeclared(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi9Queryable13is_undeclared(this.rawHandle());
     }
 
     /**
@@ -76,7 +80,7 @@ public final class Queryable implements AutoCloseable {
      */
     public void undeclare() {
         try {
-    Native.boltffi_method_class_zenoh_ffi_queryable_queryable_undeclare(this.rawHandle());
+    Native.boltffi_method_class_9zenoh_ffi9Queryable9undeclare(this.rawHandle());
 } catch (BoltFfiErrorBufferException __boltffi_error) {
     WireReader __boltffi_error_reader = new WireReader(__boltffi_error.bytes());
     throw new RuntimeException(__boltffi_error_reader.readString());

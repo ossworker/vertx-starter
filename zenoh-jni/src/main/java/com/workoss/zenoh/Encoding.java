@@ -1,5 +1,8 @@
 package com.workoss.zenoh;
 
+    /**
+     * Encoding descriptor for payload data
+     */
 public final class Encoding implements AutoCloseable {
     private final java.util.concurrent.atomic.AtomicLong handle;
 
@@ -25,7 +28,7 @@ public final class Encoding implements AutoCloseable {
         try {
     WireWriter __boltffi_schema_writer = __boltffi_schema_wire.writer();
     __boltffi_schema_writer.writeOptional(schema, (__boltffi_value_0) -> { __boltffi_schema_writer.writeString(__boltffi_value_0); });
-    return Native.boltffi_init_class_zenoh_ffi_encoding_encoding_new(id, __boltffi_schema_wire.directBuffer(), __boltffi_schema_wire.size());
+    return Native.boltffi_init_class_9zenoh_ffi8Encoding3new(id, __boltffi_schema_wire.directBuffer(), __boltffi_schema_wire.size());
 } finally {
     __boltffi_schema_wire.close();
 }
@@ -37,7 +40,7 @@ public final class Encoding implements AutoCloseable {
 
 
     private static long __boltffiCreateHandle1() {
-        return Native.boltffi_init_class_zenoh_ffi_encoding_encoding_text_plain();
+        return Native.boltffi_init_class_9zenoh_ffi8Encoding10text_plain();
     }
 
     long __boltffiTakeHandle() {
@@ -56,49 +59,49 @@ public final class Encoding implements AutoCloseable {
     public void close() {
         long __boltffi_handle = handle.getAndSet(0);
         if (__boltffi_handle == 0) return;
-        Native.boltffi_release_class_zenoh_ffi_encoding_encoding(__boltffi_handle);
+        Native.boltffi_release_class_9zenoh_ffi8Encoding(__boltffi_handle);
     }
 
     public static Encoding applicationOctetStream() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_octet_stream());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding24application_octet_stream());
     }
 
     public static Encoding applicationJson() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_json());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding16application_json());
     }
 
     public static Encoding textJson() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_text_json());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding9text_json());
     }
 
     public static Encoding applicationInteger() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_integer());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding19application_integer());
     }
 
     public static Encoding applicationFloat() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_float());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding17application_float());
     }
 
     public static Encoding applicationXml() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_xml());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding15application_xml());
     }
 
     public static Encoding applicationYaml() {
-        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_zenoh_ffi_encoding_encoding_application_yaml());
+        return Encoding.__boltffiFromHandle(Native.boltffi_init_class_9zenoh_ffi8Encoding16application_yaml());
     }
 
     /**
      * Get the encoding ID
      */
     public short getId() {
-        return Native.boltffi_method_class_zenoh_ffi_encoding_encoding_get_id(this.rawHandle());
+        return Native.boltffi_method_class_9zenoh_ffi8Encoding6get_id(this.rawHandle());
     }
 
     /**
      * Get the optional schema
      */
     public java.util.Optional<String> getSchema() {
-        byte[] __boltffi_result = Native.boltffi_method_class_zenoh_ffi_encoding_encoding_get_schema(this.rawHandle());
+        byte[] __boltffi_result = Native.boltffi_method_class_9zenoh_ffi8Encoding10get_schema(this.rawHandle());
         WireReader __boltffi_reader = new WireReader(__boltffi_result);
         return __boltffi_reader.readOptional(() -> __boltffi_reader.readString());
     }
