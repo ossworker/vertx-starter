@@ -1,0 +1,43 @@
+[package]
+name = "zenoh-ffi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+# Enable ALL link transports explicitly so the JNI dylib can open tcp / udp / quic /
+# tls / ws / unixsock-stream sessions. zenoh's `default` feature set already includes
+# these, but listing them guards against a future default change silently dropping a
+# transport. The 2026-10-11 build shipped quic-only because the feature set was
+# over-restricted, which surfaced at runtime as `Unsupported protocol: tcp`
+# (zenoh's `ALL_SUPPORTED_LINKS` is `#[cfg(feature = "transport_*")]`-gated).
+zenoh = { version = "1.10.2", features = [
+    "unstable",
+    "internal",
+    "plugins",
+    "transport_tcp",
+    "transport_udp",
+    "transport_quic",
+    "transport_quic_datagram",
+    "transport_tls",
+    "transport_ws",
+    "transport_unixsock-stream",
+] }
+# No features of its own: Cargo unifies it with zenoh's, so `LinkKind::new_supported_links`
+# reports exactly the transports linked above (see Config::supported_link_protocols).
+zenoh-link = "=1.10.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# boltffi (codegen) bumped 0.32.0 -> 0.32.1. The generator crate must stay in sync with the
+# installed `boltffi` CLI before rebuilding — JNI symbol names derive from the generator
+# version, so a crate/CLI mismatch surfaces as UnsatisfiedLinkError. Layout/behaviour
+# deltas are validated by the zenoh-jni put/get/subscriber round-trip tests.
+boltffi = "0.32.1"
+
+[profile.release]
+lto = true
+opt-level = "z"
+codegen-units = 1
+strip = "symbols"

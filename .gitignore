@@ -38,6 +38,10 @@ dependency-reduced-pom.xml
 # macOS junk
 .DS_Store
 
+# Rust FFI crate build output; the existing bare `target` rule already covers its cargo dir
+zenoh-jni/native/boltffi-zenoh/dist
+relink.err
+
 # QUIC integration-test TLS fixtures (self-signed, generated locally; private key must not be committed)
 spring-boot-zenoh-cluster/src/test/resources/quic/
 

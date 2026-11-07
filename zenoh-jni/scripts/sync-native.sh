@@ -6,11 +6,11 @@
 #   scripts/sync-native.sh               # boltffi pack java --release, then sync
 #   scripts/sync-native.sh --skip-build  # sync the existing dist/java output only
 #
-# BOLTFFI_ZENOH_DIR overrides the crate location (default ~/IDE/rustProjects/boltffi-zenoh).
+# BOLTFFI_ZENOH_DIR overrides the crate location (default zenoh-jni/native/boltffi-zenoh).
 set -euo pipefail
 
-FFI_DIR="${BOLTFFI_ZENOH_DIR:-$HOME/IDE/rustProjects/boltffi-zenoh}"
 MODULE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+FFI_DIR="${BOLTFFI_ZENOH_DIR:-$MODULE_DIR/native/boltffi-zenoh}"
 PKG="com/workoss/zenoh"
 DIST="$FFI_DIR/dist/java"
 JAVA_OUT="$MODULE_DIR/src/main/java/$PKG"

@@ -1,0 +1,5 @@
+[toolchain]
+# zenoh rejects a plugin whose rustc release+commit differs from the host, so moving to a new
+# stable means libzenoh_plugin_storage_manager / libzenoh_backend_fs must be rebuilt from source
+# with this same toolchain before they will load again.
+channel = "stable"

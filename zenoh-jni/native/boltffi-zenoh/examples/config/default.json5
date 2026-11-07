@@ -1,0 +1,34 @@
+{
+  // Zenoh configuration - compatible with zenohd
+  mode: "router",
+
+  listen: {
+    endpoints: ["tcp/[::]:7447"]
+  },
+
+  connect: {
+    endpoints: []
+  },
+
+  plugins_loading: {
+    enabled: true,
+    // 注意: 默认会自动添加 ~/.zenoh/lib（通过 Config API）
+    // 也可以在此追加自定义目录，如: "./plugins", "/opt/zenoh/lib"
+  },
+
+  plugins: {
+    storage_manager: {
+      volumes: {
+        fs: { backend: "filesystem" },
+        rocksdb: { backend: "rocksdb" }
+      },
+      storages: {
+        demo: {
+          key_expr: "demo/**",
+          strip_prefix: "demo",
+          volume: { id: "fs", dir: "zenoh_storage" }
+        }
+      }
+    }
+  }
+}
