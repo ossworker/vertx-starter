@@ -4,7 +4,7 @@ package com.workoss.zenoh;
      * An embedded Zenoh router that runs within the application process.
      * Supports loading plugins (storage_manager, filesystem backend, rocksdb backend)
      * via JSON5 configuration compatible with zenohd.
-     *
+     * 
      * In router mode, this node can:
      * - Accept connections from peers and clients
      * - Route messages between connected nodes
