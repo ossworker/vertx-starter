@@ -1,5 +1,7 @@
 package com.workoss.boot.vertx.cluster.zenoh;
 
+import com.workoss.zenoh.Query;
+import com.workoss.zenoh.Queryable;
 import com.workoss.zenoh.Reply;
 import com.workoss.zenoh.Sample;
 import com.workoss.zenoh.Session;
@@ -20,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 
 /**
  * Cluster-wide replica of the EventBus registration table and of the per-node {@link NodeInfo}.
@@ -32,8 +35,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>{@link #nodeInfoOf(String)} — {@code ClusteredEventBus.connect()} needs the peer's
  *       {@code host:port} to open its outbound Netty socket.</li>
  * </ul>
- * Both are served from local memory; Zenoh only replicates writes and lets a joining node catch
- * up, mirroring how {@link ZenohMapStore} replaces the storage-manager plugin.
+ * Both are served from local memory. Zenoh replicates writes outward, and each node also declares a
+ * queryable over both keyspaces so a joining node can pull the current state in one round trip —
+ * mirroring how {@link ZenohMapStore} replaces the storage-manager plugin.
  * <p>
  * Serialization goes through Vert.x's own {@code writeToBuffer}/{@code readFromBuffer} — i.e. the
  * {@code ClusterSerializable} contract — so the wire format is the same one the native clustered
@@ -51,9 +55,6 @@ public class ClusterRegistrationTable {
     /** Zenoh sample kind for a delete. */
     private static final byte KIND_DELETE = 1;
 
-    private static final String REGISTRATION_PATTERN = "/registrations/**";
-    private static final String NODE_INFO_PATTERN = "/nodeinfo/*";
-
     private final KeyPrefixStrategy keyPrefix;
     private final String nodeId;
 
@@ -67,8 +68,12 @@ public class ClusterRegistrationTable {
     private volatile Session session;
     private Subscriber registrationSubscriber;
     private Subscriber nodeInfoSubscriber;
+    private Queryable registrationQueryable;
+    private Queryable nodeInfoQueryable;
     private Thread registrationPollThread;
     private Thread nodeInfoPollThread;
+    private Thread registrationQueryThread;
+    private Thread nodeInfoQueryThread;
     private volatile RegistrationListener registrationListener;
 
     public ClusterRegistrationTable(KeyPrefixStrategy keyPrefix, String nodeId) {
@@ -79,7 +84,8 @@ public class ClusterRegistrationTable {
     // --- Lifecycle ---
 
     /**
-     * Replicates the registration table and node-info keyspace from peers.
+     * Replicates the registration table and node-info keyspace from peers, and answers their queries
+     * about what this node owns.
      */
     public void start(Session session) {
         if (!running.compareAndSet(false, true)) {
@@ -87,12 +93,20 @@ public class ClusterRegistrationTable {
         }
         this.session = session;
         if (session != null) {
-            String registrationPattern = keyPrefix.getRoot() + REGISTRATION_PATTERN;
-            String nodeInfoPattern = keyPrefix.getRoot() + NODE_INFO_PATTERN;
+            String registrationPattern = keyPrefix.allRegistrationsPattern();
+            String nodeInfoPattern = keyPrefix.allNodeInfosPattern();
             this.registrationSubscriber = new Subscriber(session, registrationPattern);
             this.nodeInfoSubscriber = new Subscriber(session, nodeInfoPattern);
             this.registrationPollThread = startPoll(this::pollRegistrations, "zenoh-reg-poll");
             this.nodeInfoPollThread = startPoll(this::pollNodeInfos, "zenoh-nodeinfo-poll");
+
+            // Queryables are what make a late joiner converge immediately instead of on the next
+            // heartbeat: without them a peer's `get` finds nothing, because a put with no storage
+            // manager is a one-shot notification rather than queryable state.
+            this.registrationQueryable = new Queryable(session, registrationPattern);
+            this.nodeInfoQueryable = new Queryable(session, nodeInfoPattern);
+            this.registrationQueryThread = startPoll(this::pollRegistrationQueries, "zenoh-reg-query");
+            this.nodeInfoQueryThread = startPoll(this::pollNodeInfoQueries, "zenoh-nodeinfo-query");
         }
         logger.info("Cluster registration table started for node {}", nodeId);
     }
@@ -105,10 +119,18 @@ public class ClusterRegistrationTable {
         registrationSubscriber = null;
         undeclare(nodeInfoSubscriber);
         nodeInfoSubscriber = null;
+        undeclare(registrationQueryable);
+        registrationQueryable = null;
+        undeclare(nodeInfoQueryable);
+        nodeInfoQueryable = null;
         join(registrationPollThread);
         registrationPollThread = null;
         join(nodeInfoPollThread);
         nodeInfoPollThread = null;
+        join(registrationQueryThread);
+        registrationQueryThread = null;
+        join(nodeInfoQueryThread);
+        nodeInfoQueryThread = null;
         this.session = null;
         registrations.clear();
         nodeInfos.clear();
@@ -315,13 +337,9 @@ public class ClusterRegistrationTable {
     }
 
     /**
-     * Seeds {@link #nodeInfoOf} for peers that were already up before this node subscribed.
-     * <p>
-     * Only useful for state a peer keeps rewriting. A Zenoh {@code put} without a storage manager is
-     * an instantaneous notification, not queryable state — {@code session.get()} returns nothing for
-     * it (verified), so this can only pick up writes a peer happens to repeat, such as the
-     * liveliness heartbeat. Registrations therefore rely on {@link #republishLocalRegistrations()}
-     * instead.
+     * Seeds {@link #nodeInfoOf} for peers that were already up before this node subscribed. Each peer
+     * answers from its own node-info queryable, so this resolves in one round trip rather than waiting
+     * for the peer's next heartbeat {@code put}.
      */
     public void discoverExistingNodeInfos() {
         Session current = this.session;
@@ -329,7 +347,7 @@ public class ClusterRegistrationTable {
             return;
         }
         try {
-            for (Reply reply : current.get(keyPrefix.getRoot() + NODE_INFO_PATTERN)) {
+            for (Reply reply : current.get(keyPrefix.allNodeInfosPattern())) {
                 if (!reply.success() || reply.sampleKeyExpr().isEmpty()) {
                     continue;
                 }
@@ -348,38 +366,65 @@ public class ClusterRegistrationTable {
     }
 
     /**
+     * Seeds {@link #registrationsOf} with what peers were already serving before this node subscribed.
+     * <p>
+     * Without this a late joiner knows no address exists on a peer until that peer's next heartbeat
+     * re-publishes, and every publish in the window is dropped by {@code DefaultNodeSelector} — it
+     * cannot pick a node it has no registration for.
+     */
+    public void discoverExistingRegistrations() {
+        Session current = this.session;
+        if (current == null) {
+            return;
+        }
+        try {
+            for (Reply reply : current.get(keyPrefix.allRegistrationsPattern())) {
+                if (!reply.success() || reply.sampleKeyExpr().isEmpty()) {
+                    continue;
+                }
+                String owner = lastSegment(reply.sampleKeyExpr().get());
+                if (owner == null || owner.equals(nodeId)) {
+                    continue;
+                }
+                byte[] payload = reply.samplePayload().orElse(null);
+                String address = decodeEnvelopeAddress(payload);
+                RegistrationInfo info = decodeEnvelopeInfo(payload);
+                if (address == null || info == null) {
+                    continue;
+                }
+                registrations.computeIfAbsent(address, k -> new ConcurrentHashMap<>())
+                        .put(owner, List.of(info));
+                fireRegistrationsUpdated(address);
+            }
+        } catch (Exception e) {
+            logger.debug("Registration discovery failed: {}", e.getMessage());
+        }
+    }
+
+    /**
      * Re-publishes every registration this node owns.
      * <p>
-     * A registration is written once, when the consumer is created. A peer that starts afterwards
-     * subscribes to a keyspace where that write already happened and will never see it — and because
-     * a Zenoh {@code put} without a storage manager cannot be queried back, there is no way to ask
-     * "what do you serve?". Re-publishing on a timer makes the table converge instead: a late or
-     * briefly-partitioned peer picks the state up on the next round, at the cost of one small
-     * message per address per interval.
+     * Peers normally learn these from the queryable at join time; the timer covers the cases a query
+     * cannot — a link that dropped and reformed, or a peer whose own discovery ran before this node
+     * had anything to answer with.
      */
     public void republishLocalRegistrations() {
         Session current = this.session;
         if (current == null) {
             return;
         }
-        for (Map.Entry<String, Map<String, List<RegistrationInfo>>> entry : registrations.entrySet()) {
-            List<RegistrationInfo> own = entry.getValue().get(nodeId);
-            if (own == null || own.isEmpty()) {
-                continue;
-            }
-            RegistrationInfo info = own.get(0);
+        forEachOwnRegistration((address, info) -> {
             try {
-                current.put(keyPrefix.registrationKey(entry.getKey(), nodeId),
-                        encodeRegistrationEnvelope(entry.getKey(), info));
+                current.put(keyPrefix.registrationKey(address, nodeId),
+                        encodeRegistrationEnvelope(address, info));
             } catch (Exception e) {
-                logger.debug("Failed to re-publish registration {}@{}: {}",
-                        entry.getKey(), nodeId, e.getMessage());
+                logger.debug("Failed to re-publish registration {}@{}: {}", address, nodeId, e.getMessage());
             }
-        }
+        });
     }
 
     /**
-     * Re-publishes this node's {@link NodeInfo} so peers that joined late can resolve it.
+     * Re-publishes this node's {@link NodeInfo} so peers that missed the queryable answer still resolve it.
      */
     public void republishLocalNodeInfo() {
         NodeInfo info = nodeInfos.get(nodeId);
@@ -394,6 +439,66 @@ public class ClusterRegistrationTable {
             current.put(keyPrefix.nodeInfoKey(nodeId), encode(info));
         } catch (Exception e) {
             logger.debug("Failed to re-publish node info for {}: {}", nodeId, e.getMessage());
+        }
+    }
+
+    // --- Queryables: each node asserts only what it owns ---
+
+    private void pollNodeInfoQueries() {
+        while (running.get() && nodeInfoQueryable != null && !nodeInfoQueryable.isUndeclared()) {
+            Queryable current = nodeInfoQueryable;
+            if (current == null) {
+                break;
+            }
+            // try-with-resources matters: dropping the query without replying is what tells the
+            // requesting node that no more replies are coming.
+            try (Query query = new Query(current)) {
+                NodeInfo info = nodeInfos.get(nodeId);
+                if (info != null) {
+                    query.reply(keyPrefix.nodeInfoKey(nodeId), encode(info));
+                }
+            } catch (Exception e) {
+                if (!keepPolling(nodeInfoQueryable)) {
+                    break;
+                }
+                logger.debug("Node info query poll error: {}", e.getMessage());
+            }
+        }
+    }
+
+    private void pollRegistrationQueries() {
+        while (running.get() && registrationQueryable != null && !registrationQueryable.isUndeclared()) {
+            Queryable current = registrationQueryable;
+            if (current == null) {
+                break;
+            }
+            try (Query query = new Query(current)) {
+                forEachOwnRegistration((address, info) ->
+                        query.reply(keyPrefix.registrationKey(address, nodeId),
+                                encodeRegistrationEnvelope(address, info)));
+            } catch (Exception e) {
+                if (!keepPolling(registrationQueryable)) {
+                    break;
+                }
+                logger.debug("Registration query poll error: {}", e.getMessage());
+            }
+        }
+    }
+
+    private boolean keepPolling(Queryable queryable) {
+        if (Thread.currentThread().isInterrupted()) {
+            return false;
+        }
+        return queryable != null && !queryable.isUndeclared();
+    }
+
+    /** Visits every registration this node owns, as an address plus its own {@link RegistrationInfo}. */
+    private void forEachOwnRegistration(BiConsumer<String, RegistrationInfo> action) {
+        for (Map.Entry<String, Map<String, List<RegistrationInfo>>> entry : registrations.entrySet()) {
+            List<RegistrationInfo> own = entry.getValue().get(nodeId);
+            if (own != null && !own.isEmpty()) {
+                action.accept(entry.getKey(), own.get(0));
+            }
         }
     }
 
@@ -534,6 +639,17 @@ public class ClusterRegistrationTable {
             subscriber.undeclare();
         } catch (Exception e) {
             logger.debug("Failed to undeclare subscriber: {}", e.getMessage());
+        }
+    }
+
+    private static void undeclare(Queryable queryable) {
+        if (queryable == null) {
+            return;
+        }
+        try {
+            queryable.undeclare();
+        } catch (Exception e) {
+            logger.debug("Failed to undeclare queryable: {}", e.getMessage());
         }
     }
 

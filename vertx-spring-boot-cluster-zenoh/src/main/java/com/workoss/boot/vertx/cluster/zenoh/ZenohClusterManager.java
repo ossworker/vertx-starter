@@ -183,7 +183,10 @@ public class ZenohClusterManager implements ClusterManager {
 
             // Discover nodes that were already alive before we subscribed
             discoverExistingNodes();
+            // NodeInfo first: resolving a peer's host:port is what makes the registrations we are
+            // about to pull usable, since registrationsUpdated hands them straight to the selector.
             registrationTable.discoverExistingNodeInfos();
+            registrationTable.discoverExistingRegistrations();
 
             knownNodes.add(nodeId);
             active = true;
@@ -423,9 +426,10 @@ public class ZenohClusterManager implements ClusterManager {
                                 }
                                 // The newcomer may have published its registrations and NodeInfo
                                 // before this node's subscribers existed. Liveliness is the earliest
-                                // reliable signal that a peer is up; its state converges on the
-                                // next re-publish round.
+                                // reliable signal that a peer is up, and the newcomer's queryables
+                                // answer both pulls immediately.
                                 registrationTable.discoverExistingNodeInfos();
+                                registrationTable.discoverExistingRegistrations();
                             }
                         } else if (sample.kind() == 1) { // DELETE
                             if (knownNodes.remove(detectedNodeId)) {

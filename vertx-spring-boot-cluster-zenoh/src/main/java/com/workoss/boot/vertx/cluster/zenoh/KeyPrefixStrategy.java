@@ -42,6 +42,13 @@ public class KeyPrefixStrategy {
     }
 
     /**
+     * Get the key expression pattern for every node's info.
+     */
+    public String allNodeInfosPattern() {
+        return root + "/nodeinfo/*";
+    }
+
+    /**
      * Get the key for an async map entry.
      */
     public String mapKey(String mapName, String entryKey) {
