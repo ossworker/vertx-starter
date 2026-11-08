@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: contact-center-example
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+
+vertx:
+  websocket:
+    enabled: true
+  contact-center:
+    enabled: true
+    path: /uctp
+    sql:
+      dialect: postgresql
+      host: 127.0.0.1
+      port: 5432
+      database: uctp_demo
+      user: apple
+      max-size: 8
+      max-wait-queue-size: 256
+    ice-servers: []
+    # 外部渠道绑定：memory（进程内）/ redis（集群共享）
+    external-bindings: redis
+    # 开发级令牌表：token → 身份（生产环境替换为身份服务）
+    tokens:
+      customer-1:
+        identity-id: id_customer001
+        display-name: 张三
+        kind: human
+        role: customer
+      customer-2:
+        identity-id: id_customer002
+        display-name: 李四
+        kind: human
+        role: customer
+      agent-1:
+        identity-id: id_agent001
+        display-name: 客服小芳
+        kind: human
+        role: agent
+      agent-2:
+        identity-id: id_agent002
+        display-name: 客服小明
+        kind: human
+        role: agent
+      ai-agent:
+        identity-id: id_aiagent001
+        display-name: AI 客服
+        kind: ai
+        role: agent
+      supervisor-1:
+        identity-id: id_super001
+        display-name: 主管王经理
+        kind: human
+        role: supervisor
+
+logging:
+  level:
+    com.workoss.boot.vertx.contactcenter: info

@@ -1,0 +1,14 @@
+server:
+  port: 8092
+
+vertx:
+  cluster:
+    enabled: true
+    zenoh:
+      app-name: contact-center-example
+      environment: dev
+      mode: peer
+#      listen:
+#        - "tcp/127.0.0.1:7448"
+#      connect:
+#        - "tcp/127.0.0.1:7447"

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>服务工作台 · UCTP v1</title>
+  <link rel="stylesheet" href="contact-center.css">
+  <script src="uctp-client.js" defer></script>
+  <script src="uctp-chat.js" defer></script>
+  <script src="uctp-media.js" defer></script>
+  <script src="uctp-workspace.js" defer></script>
+</head>
+<body data-role="agent">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">C</span><span>服务工作台<small>CONTACT CENTER / UCTP v1</small></span></a>
+    <div class="connection-pill"><span id="connectionDot" class="status-dot"></span><span id="status" role="status">未连接</span></div>
+    <a class="subtle-link" href="customer.html">客户咨询入口</a>
+  </header>
+  <noscript>此工作台需要启用 JavaScript。没有连接服务器时不会开启设备或发送消息。</noscript>
+  <div id="app"></div>
+</body>
+</html>

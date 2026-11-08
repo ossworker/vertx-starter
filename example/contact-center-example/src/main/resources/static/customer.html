@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>在线咨询 · UCTP v1</title>
+  <link rel="stylesheet" href="contact-center.css">
+  <script src="uctp-client.js" defer></script>
+  <script src="uctp-chat.js" defer></script>
+  <script src="uctp-media.js" defer></script>
+  <script src="uctp-workspace.js" defer></script>
+</head>
+<body data-role="customer">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">C</span><span>在线咨询<small>CONTACT CENTER / UCTP v1</small></span></a>
+    <div class="connection-pill"><span id="connectionDot" class="status-dot"></span><span id="status" role="status">未连接</span></div>
+    <a class="subtle-link" href="agent.html">坐席工作台</a>
+  </header>
+  <noscript>此咨询页面需要启用 JavaScript。开始咨询仅创建聊天，不会自动开启麦克风或摄像头。</noscript>
+  <div id="app"></div>
+</body>
+</html>

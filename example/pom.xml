@@ -14,6 +14,7 @@
 
     <modules>
         <module>vertx-spring-boot-example</module>
+        <module>contact-center-example</module>
         <module>tomcat-spring-boot-example</module>
         <module>vertx-server-spring-boot-example</module>
         <module>zenoh-cluster-spring-boot-example</module>
